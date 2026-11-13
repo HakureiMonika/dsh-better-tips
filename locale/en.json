@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Better error tips",
+    "description": "Readable summaries and checks for error, retry and compaction rows, with per-failure raw text, on-demand network evidence, a copyable troubleshooting report and bounded extra retries."
+  }
+}

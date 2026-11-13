@@ -1,0 +1,68 @@
+{
+  "name": "dsh-better-tips",
+  "version": "0.12.1",
+  "type": "module",
+  "description": "Clear DSH error summaries, original messages, on-demand network evidence, copyable troubleshooting reports and bounded retries.",
+  "author": "HakureiMonika",
+  "homepage": "https://github.com/HakureiMonika/dsh-better-tips#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HakureiMonika/dsh-better-tips.git"
+  },
+  "bugs": {
+    "url": "https://github.com/HakureiMonika/dsh-better-tips/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "error",
+    "raw-error",
+    "retry",
+    "pi-ai"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib/*.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "test/*.test.mjs"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check index.js && node --check client.js && node --check lib/policy.js"
+  },
+  "engines": {
+    "node": ">=24.9.0",
+    "dsh": ">=0.2.2-rc.2 <0.3.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,31 @@
+# dsh-better-tips：原生报错优先，不被本地化提示覆盖。
+- insert:
+    - id: better-tips
+      name: dsh-better-tips
+      config:
+        # 总开关：关掉后Host不捕获也不重试；Client内联展示独立，停用bundle才恢复官方renderers。
+        enabled: true
+        # 官方重试预算之外，每个步骤最多再接几次。0 表示不介入重试。
+        extraRetries: 2
+        # 上下文压缩（compaction）那一次独立的摘要请求最多再接几次；0 表示不介入。
+        compactionRetries: 2
+        # 官方没试过时的起步等待；官方试过则接续它的退避曲线。
+        initialDelayMs: 1000
+        # 任何一次等待的上限（含提供方要求的 Retry-After）。
+        maxDelayMs: 20000
+        # 本地延迟的对称抖动比例。
+        jitterRatio: 0.2
+        # 愿意接手的错误码；硬拒绝集合（AUTH/QUOTA/CONTEXT_WINDOW_EXCEEDED 等）优先。
+        retryableCodes:
+          - PI_AI_ERROR
+          - TRANSPORT
+          - TIMEOUT
+          - SERVER
+          - EMPTY_RESPONSE
+          - RATE_LIMIT
+        # 在 fetch 边界捕获失败请求的网络层细节：异常 cause 链、非 2xx 的响应头与响应体。
+        captureDetails: true
+        # 旧版兼容项；现在依请求身份关联，不使用附近时间作为回退证据。
+        captureWindowMs: 10000
+        # 只捕获这些主机的失败请求；留空表示全部。
+        captureHosts: []
