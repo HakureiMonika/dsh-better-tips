@@ -116,22 +116,23 @@ function assertMainAdvice (row, fragment) {
 }
 function assertOriginal (row, original) {
   const expected = [original.code ? `[${original.code}]` : '', original.message].filter(Boolean).join(' ')
-  const originals = withClass(row.tree, 'bt_original')
-  assert.ok(originals.some((node) => text(node) === expected), 'complete original remains verbatim in its disclosure')
-  assert.equal(withClass(row.tree, 'bt_original', true).length, 0, 'full originals never spill into the default summary')
+  const originals = [...withClass(row.tree, 'bt_original'), ...withClass(row.tree, 'bt_preview'), ...withClass(row.tree, 'bt_attemptPreview')]
+  assert.ok(originals.some((node) => text(node) === expected), 'complete original remains verbatim in either its unchanged preview or full-original disclosure')
+  const fallback = withClass(row.tree, 'bt_nativeFallback', true)
+  assert.equal(withClass(row.tree, 'bt_original', true).length, fallback.length ? 1 : 0, 'only explicit native fallback may show complete original by default')
   assert.ok(row.full.includes(expected), 'full error evidence is retained')
 }
 function assertCaptureAdvice (row, fragment) {
   const advice = withClass(row.tree, 'bt_captureAdvice')
   assert.ok(advice.length > 0, 'capture-specific advice is available')
-  assert.equal(withClass(row.tree, 'bt_captureAdvice', true).length, 0, 'capture-specific advice stays inside details')
+  assert.ok(advice.every((node) => text(node).includes('排查')), 'capture-specific advice stays explicitly labelled')
   assert.ok(advice.some((node) => text(node).includes(fragment)), `missing capture-specific advice ${fragment}`)
 }
 
 /** Hook instances follow component type/key/path, rather than sharing sibling state. */
 async function renderRow (key, props, {
   response = { items: [], records: [], capture: { installed: true, records: 0 } },
-  error, status, pending = false, sessions, clickLog = false, interact, respond, timers,
+  error, status, pending = false, sessions, clickLog = false, interact, respond, timers, environment, environmentRespond,
   openDetails = true,
 } = {}) {
   const mounted = mountFactory(sessions)
@@ -140,6 +141,7 @@ async function renderRow (key, props, {
   const originalClearTimeout = globalThis.clearTimeout
   if (timers) { globalThis.setTimeout = timers.set; globalThis.clearTimeout = timers.clear }
   const calls = []
+  const environmentCalls = []
   const instances = new Map()
   const domOpen = new Map()
   const typeIds = new Map()
@@ -150,6 +152,12 @@ async function renderRow (key, props, {
   let renderedInstances
   const typeId = (type) => { if (!typeIds.has(type)) typeIds.set(type, ++nextType); return typeIds.get(type) }
   globalThis.fetch = (url, options) => {
+    if (String(url) === 'api/better-tips/environment') {
+      environmentCalls.push({ url: String(url), options })
+      if (environmentRespond) return environmentRespond(options, environmentCalls.length)
+      return Promise.resolve({ ok: true, json: async () => environment ?? { runtime: {
+        ...response?.runtime, enabledPlugins: [{ name: 'dsh-better-tips', version: '0.12.0' }], pluginsStatus: 'complete' } } })
+    }
     calls.push({ url: String(url), options })
     if (respond) return respond(String(url), options, calls.length)
     if (pending) return new Promise(() => {})
@@ -194,7 +202,7 @@ async function renderRow (key, props, {
     result.children = node.children.map((child, index) => render(child, `${path}/${child?.props?.key ?? index}`))
     return result
   }
-  const snapshot = (tree) => ({ tree, calls, primary: text(tree, 'collapsed'), visible: text(tree, true), full: text(tree) })
+  const snapshot = (tree) => ({ tree, calls, environmentCalls, primary: text(tree, 'collapsed'), visible: text(tree, true), full: text(tree) })
   const settle = async () => {
     for (let pass = 0; pass < 30; pass++) {
       dirty = false
@@ -272,10 +280,325 @@ function http (status, statusText, rawFailure = { message: `${status} status cod
   }
 }
 const details = (items) => ({ items, capture: { installed: true, records: 78, recent: [] } })
+const deferred = () => {
+  let resolve, reject
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no })
+  return { promise, resolve, reject }
+}
+const jsonResult = (data) => ({ ok: true, json: async () => data })
+async function withClipboard (operation, write) {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+  const copied = []
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { writeText: write ?? (async (value) => { copied.push(value) }) } } })
+  try { return await operation(copied) } finally {
+    if (previous) Object.defineProperty(globalThis, 'navigator', previous)
+    else delete globalThis.navigator
+  }
+}
+const reportPayload = (items = [socket()]) => ({ ...details(items), runtime: { dshVersion: '0.2.2-rc.2', pluginVersion: '0.12.0' } })
+
 function assertQuiet (primary) {
   assert.doesNotMatch(primary, /gateway\.example|\/v1\/chat\/completions|Caddy|765432|765\.4|request-debug-id/)
   assert.doesNotMatch(primary, /推测|可能是同一次|例如|捕获器|进程内失败|本轮命中|未捕获|读取失败|正在读取|暂无捕获|连接失败（|没有保留原因/)
 }
+
+test('advice and report follow capture; raw details and native error are sibling disclosures', async () => {
+  const row = await renderRow('turn-error', terminal(), { openDetails: false, response: reportPayload() })
+  const children = row.tree.children
+  const index = (name) => children.findIndex((node) => String(node.props?.className ?? '').split(/\s+/).includes(name))
+  assert.ok(index('bt_network') < index('bt_advice'))
+  assert.ok(index('bt_advice') < index('bt_report'))
+  assert.ok(index('bt_report') < index('bt_detailPair'))
+  assert.equal(withClass(row.tree, 'bt_failureTitle').length, 1)
+  const pair = withClass(row.tree, 'bt_detailPair')[0]
+  assert.equal(pair.children.length, 2)
+  assert.ok(pair.children.every((node) => node.type === 'details'))
+  assert.match(text(pair.children[0].children[0]), /底层原始详情/)
+  assert.match(text(pair.children[1].children[0]), /DSH 原生报错/)
+  assert.equal(withClass(withClass(row.tree, 'bt_network')[0], 'bt_networkDetails').length, 0)
+})
+
+test('retry screenshot keeps current error then one advice before copy and folded history', async () => {
+  const first = { ...retry().node.data.current, seq: 10, retry: 1 }
+  const second = { ...retry().node.data.current, seq: 20, retry: 2 }
+  const row = await renderRow('model-retry', { ...retry(), node: { data: { attempts: [first, second], current: second } } }, { openDetails: false, response: details([socket()]) })
+  assert.equal(row.tree.children[0].props.className, 'bt_failureTitle')
+  assert.equal(row.tree.children[1].props.className, 'bt_section bt_history')
+  const history = withClass(row.tree, 'bt_history')[0]
+  assert.equal(history.children[0].props.key, 20)
+  assert.equal(history.children[1].props.className, 'bt_earlierErrors')
+  const latest = history.children[0]
+  const classes = latest.children.map((entry) => entry.props?.className ?? '')
+  assert.equal(classes[0], 'bt_section bt_network')
+  assert.equal(classes[1], 'bt_captureAdvice bt_advice')
+  assert.equal(classes[2], 'bt_actions')
+  assert.equal(classes[3], 'bt_report')
+  assert.equal(classes[4], 'bt_detailPair')
+  assert.equal(withClass(latest, 'bt_heading', true).filter((entry) => /已重试|重试记录|失败记录/.test(text(entry))).length, 0)
+  assert.equal(withClass(row.tree, 'bt_advice', true).length, 1)
+  assert.equal(row.visible.match(/排查/g)?.length, 1)
+  assert.doesNotMatch(row.visible, /重试记录 ·|按发生顺序|失败记录 2/)
+})
+
+test('a new nonconsecutive error folds the previous card and aborts pending evidence', async () => {
+  const old = { key: 'old', kind: 'turn-error', visibility: 'visible', data: terminal().node.data }
+  const later = { key: 'later', kind: 'model-retry', visibility: 'visible', data: retry().node.data }
+  const answer = { key: 'answer', kind: 'assistant-step', visibility: 'visible', data: {} }
+  let nodes = [old, answer]
+  const useChat = (selector) => selector({ order: nodes.map((node) => node.key), nodes: new Map(nodes.map((node) => [node.key, node])) })
+  const waiting = deferred()
+  await renderRow('turn-error', { ...terminal(), node: old, useChat }, { openDetails: false, respond: () => waiting.promise, interact: async ({ row, update, settle }) => {
+    assert.equal(row.calls.length, 1)
+    nodes = [old, answer, later]
+    let next = await update({ ...terminal(), node: old, useChat })
+    assert.equal(next.calls[0].options.signal.aborted, true)
+    assert.equal(withClass(next.tree, 'bt_earlierNode')[0].props.open, false)
+    waiting.resolve(jsonResult(details([socket({ detail: { ...socket().detail, error: { message: 'LATE_OLD_ERROR' } } })])))
+    next = await settle()
+    assert.doesNotMatch(next.full, /LATE_OLD_ERROR/)
+    assert.equal(next.calls.length, 1)
+  } })
+})
+
+test('session identity change resets both native and raw disclosures', async () => {
+  const props = { ...terminal(), node: { ...terminal().node, key: 'stable', kind: 'turn-error' } }
+  await renderRow('turn-error', props, { openDetails: false, response: details([socket()]), interact: async ({ row, toggle, update }) => {
+    row = await toggle(withClass(row.tree, 'bt_disclosure')[0], true)
+    row = await toggle(withClass(row.tree, 'bt_networkDetails')[0], true)
+    assert.equal(withClass(row.tree, 'bt_disclosure')[0].props.open, true)
+    const next = await update({ ...props, sessionId: 'session-other' })
+    assert.equal(withClass(next.tree, 'bt_disclosure')[0].props.open, false)
+    assert.equal(withClass(next.tree, 'bt_networkDetails')[0].props.open, false)
+    assert.ok(next.calls[0].options.signal.aborted)
+  } })
+})
+
+test('screenshot HTTP JSON case defaults to capture and opens complete native original in one layer', async () => {
+  const body = JSON.stringify({ error: { message: 'unknown provider for model example-model', type: 'invalid_request_error' } })
+  const message = `400: ${JSON.stringify({ message: 'unknown provider for model example-model', type: 'invalid_request_error' })}`
+  const source = http(400, 'Bad Request', { code: 'INVALID_REQUEST', message }, { detail: { ...http(400, 'Bad Request').detail, body, bodyState: 'complete' } })
+  await withClipboard(async (copied) => {
+    await renderRow('turn-error', terminal(message, 'INVALID_REQUEST'), { openDetails: false, response: details([source]), interact: async ({ row, toggle, click, beforeDisclosure }) => {
+      assert.equal(beforeDisclosure.calls.length, 1)
+      assert.equal(withClass(row.tree, 'bt_network')[0].type, 'section')
+      assert.match(row.visible, /插件捕获的底层报错.*HTTP 400 Bad Request · unknown provider for model example-model/)
+      assert.ok(!row.visible.includes(message))
+      assert.ok(!row.visible.includes('gateway.example'))
+      assert.ok(!row.visible.includes(body))
+      assert.doesNotMatch(row.visible, /摘要 ·|查看完整原文|网络诊断详情/)
+      assert.match(row.visible, /底层原始详情|一键复制排障报告/)
+      assert.equal(withClass(row.tree, 'bt_fullOriginal').length, 0)
+      const raw = await toggle(withClass(row.tree, 'bt_disclosure')[0], true)
+      assert.ok(raw.visible.includes(`[INVALID_REQUEST] ${message}`))
+      await click(elements(raw.tree, 'button').find((node) => text(node) === '复制完整错误'))
+      const network = await toggle(withClass(raw.tree, 'bt_networkDetails')[0], true)
+      assert.ok(network.visible.includes(body))
+      assert.ok(network.visible.includes('gateway.example'))
+    } })
+    assert.deepEqual(copied, [`[INVALID_REQUEST] ${message}`])
+  })
+})
+
+test('short native errors stay folded and copy completely without a summary duplicate', async () => {
+  await withClipboard(async (copied) => {
+    await renderRow('turn-error', terminal(), { openDetails: false, response: details([socket()]), interact: async ({ row, click, toggle }) => {
+      assert.equal(withClass(row.tree, 'bt_original').length, 1)
+      assert.equal(withClass(row.tree, 'bt_fullOriginal').length, 0)
+      assert.doesNotMatch(row.visible, /\[TRANSPORT\] Connection error\./)
+      assert.match(row.visible, /插件捕获的底层报错.*ECONNRESET/)
+      assert.doesNotMatch(row.visible, /socket wrapper|gateway\.example/)
+      const next = await toggle(withClass(row.tree, 'bt_disclosure')[0], true)
+      assert.equal(next.visible.split('[TRANSPORT] Connection error.').length - 1, 1)
+      await click(elements(next.tree, 'button').find((node) => text(node) === '复制完整错误'))
+    } })
+    assert.deepEqual(copied, ['[TRANSPORT] Connection error.'])
+  })
+})
+
+test('capture preview stays bounded and marks partial or protected response state without decoding incomplete JSON', async () => {
+  for (const state of ['pending', 'truncated', 'unreadable']) {
+    const source = http(400, 'Bad Request', failure)
+    source.detail = { ...source.detail, body: '{"error":{"message":"' + '😀'.repeat(180), bodyState: state }
+    const row = await renderRow('turn-error', terminal(), { response: details([source]) })
+    const preview = text(withClass(row.tree, 'bt_primary')[0])
+    assert.ok(Array.from(preview).length <= 121)
+    assert.ok(preview.includes('{"error"'), 'incomplete JSON remains literal rather than fabricated provider text')
+    assert.ok(!preview.includes('\uFFFD'))
+    assert.match(row.visible, /响应正文(?:读取中|已截断|读取失败)/)
+  }
+  const source = http(401, 'Unauthorized', failure)
+  source.detail = { ...source.detail, body: 'WITHHELD_BODY', bodyReason: 'credential-protection', protected: true }
+  const row = await renderRow('turn-error', terminal(), { response: details([source]) })
+  assert.doesNotMatch(text(withClass(row.tree, 'bt_primary')[0]), /WITHHELD_BODY/)
+  assert.match(row.visible, /认证响应正文已受保护/)
+})
+
+test('default capture copy is complete raw capture while native copy stays exact and report reuses one mounted read', async () => {
+  await withClipboard(async (copied) => {
+    const capture = http(503, 'Service Unavailable', failure)
+    capture.detail.body = JSON.stringify({ error: { message: 'captured provider message\nsecond line', opaque: 'RAW_BODY_TAIL' } })
+    await renderRow('turn-error', terminal(), { openDetails: false, response: reportPayload([capture]), interact: async ({ row, click, toggle }) => {
+      assert.equal(row.calls.length, 1)
+      const captureButton = elements(row.tree, 'button').find((node) => text(node) === '复制截获错误')
+      assert.ok(withClass(row.tree, 'bt_copy', true).includes(captureButton), 'capture copy is available without native expansion')
+      const expectedCapture = text(withClass(withClass(row.tree, 'bt_networkDetails')[0], 'bt_raw')[0])
+      await click(captureButton)
+      assert.equal(copied[0], expectedCapture, 'capture copy uses complete raw capture, not bounded preview')
+      for (const value of ['HTTP 503 Service Unavailable', 'gateway.example/v1/chat/completions', 'x-request-id: request-debug-id', 'RAW_BODY_TAIL', 'elapsedMs=765432']) assert.ok(copied[0].includes(value), value)
+      const reportButton = withClass(row.tree, 'bt_reportCopy', true)[0]
+      assert.equal(text(reportButton), '一键复制排障报告')
+      const report = await click(reportButton)
+      assert.equal(report.calls.length, 1, 'one-click report reuses already fetched evidence')
+      assert.match(copied[1], /DSH 原生报错: \[TRANSPORT\] Connection error\./)
+      const native = await toggle(withClass(report.tree, 'bt_disclosure')[0], true)
+      await click(elements(native.tree, 'button').find((node) => text(node) === '复制完整错误'))
+      assert.equal(copied[2], '[TRANSPORT] Connection error.')
+      assert.equal(native.calls.length, 1)
+    } })
+  })
+})
+
+test('retry default report and capture copy stay inside their own attempt with no duplicate latest controls', async () => {
+  const first = { ...retry('first native', 'TRANSPORT').node.data.current, seq: 20, retry: 1, attemptId: 'first' }
+  const second = { ...retry('second native', 'SERVER').node.data.current, seq: 30, retry: 2, attemptId: 'second' }
+  const a = socket({ failure: first.failure, attemptId: 'first', context: { sessionId: 'session-client-test', provider: 'test-provider', attemptId: 'first' } })
+  const b = http(503, 'Second capture', second.failure, { attemptId: 'second', context: { sessionId: 'session-client-test', provider: 'test-provider', attemptId: 'second' } })
+  await withClipboard(async (copied) => {
+    await renderRow('model-retry', { ...retry(), node: { data: { attempts: [first, second], current: second } } }, { openDetails: false, response: reportPayload([a, b]), interact: async ({ row, click, toggle }) => {
+      const attempts = withClass(row.tree, 'bt_attempt').toSorted((a, b) => a.props.key - b.props.key)
+      assert.equal(attempts.length, 2)
+      assert.equal(withClass(row.tree, 'bt_reportCopy', true).length, 1)
+      assert.equal(withClass(row.tree, 'bt_network', true).length, 1)
+      assert.equal(withClass(row.tree, 'bt_disclosure').length, 0)
+      row = await toggle(withClass(row.tree, 'bt_earlierErrors')[0], true)
+      row = await toggle(withClass(row.tree, 'bt_earlierError')[0], true)
+      assert.match(row.visible, /ECONNRESET/)
+      for (let index = 0; index < attempts.length; index++) {
+        assert.equal(withClass(attempts[index], 'bt_reportCopy', true).length, 1)
+        assert.equal(withClass(attempts[index], 'bt_attemptNative')[0].props.open, false)
+        await click(withClass(attempts[index], 'bt_reportCopy', true)[0])
+      }
+      assert.match(copied[0], /first native|ECONNRESET/)
+      assert.doesNotMatch(copied[0], /second native|Second capture/)
+      assert.match(copied[1], /second native|HTTP 503/)
+      assert.doesNotMatch(copied[1], /first native|ECONNRESET/)
+      assert.equal(row.calls.length, 1)
+    } })
+  })
+})
+
+test('consecutive error nodes fold older blocks lazily and reset when a newer error arrives', async () => {
+  const node = { key: 'first', kind: 'turn-error', visibility: 'visible', data: terminal().node.data }
+  const later = { key: 'second', kind: 'turn-error', visibility: 'visible', data: terminal('later failure').node.data }
+  const tail = { key: 'tail', kind: 'turn-tail', visibility: 'visible', data: {} }
+  let ordered = [node, tail, later]
+  const useChat = (selector) => selector({ order: ordered.map((entry) => entry.key), nodes: { get: (key) => ordered.find((entry) => entry.key === key) } })
+  await renderRow('turn-error', { ...terminal(), node, useChat }, { openDetails: false, response: details([socket()]), interact: async ({ row, toggle, update }) => {
+    assert.equal(row.calls.length, 0, 'folded older node does not fetch capture until revealed')
+    assert.match(row.visible, /更早的报错/)
+    assert.doesNotMatch(row.visible, /ECONNRESET|一键复制排障报告/)
+    let next = await toggle(withClass(row.tree, 'bt_earlierNode')[0], true)
+    assert.equal(next.calls.length, 1)
+    assert.match(next.visible, /ECONNRESET/)
+    ordered = [node, { ...later, key: 'third' }]
+    next = await update({ ...terminal(), node, useChat })
+    assert.equal(withClass(next.tree, 'bt_earlierNode')[0].props.open, false, 'new successor resets old manual expansion')
+    assert.doesNotMatch(next.visible, /ECONNRESET/)
+    ordered = [node, { key: 'answer', kind: 'assistant-step', visibility: 'visible', data: {} }, later]
+    next = await update({ ...terminal(), node, useChat })
+    assert.equal(withClass(next.tree, 'bt_earlierNode').length, 1, 'an intervening reply does not remove historical folding')
+    assert.match(next.visible, /ECONNRESET/, 'manual expansion survives while the newest error identity is unchanged')
+  } })
+  for (const boundary of [
+    { key: 'user', kind: 'user', visibility: 'visible' },
+    { key: 'tool', kind: 'tool-call', visibility: 'visible' },
+    { key: 'success', kind: 'manual-compaction', visibility: 'visible', data: { compaction: {} } },
+    { key: 'missing' },
+  ]) {
+    const useBoundary = (selector) => selector({ order: [node.key, boundary.key, later.key], nodes: { get: (key) => key === boundary.key ? boundary.kind ? boundary : undefined : key === node.key ? node : later } })
+    const separated = await renderRow('turn-error', { ...terminal(), node, useChat: useBoundary }, { openDetails: false })
+    assert.equal(withClass(separated.tree, 'bt_earlierNode').length, boundary.kind ? 1 : 0, boundary.key)
+  }
+  ordered = [node, later]
+  const latest = await renderRow('turn-error', { ...terminal('later failure'), node: later, useChat }, { openDetails: false })
+  assert.equal(withClass(latest.tree, 'bt_earlierNode').length, 0)
+  assert.equal(latest.calls.length, 1, 'latest error keeps normal capture behavior')
+})
+
+test('earlier retries fold by stable record identity while newest record stays visible', async () => {
+  const attempts = [1, 2, 3].map((retryNumber) => ({ ...retry('native-' + retryNumber).node.data.current, seq: retryNumber * 10, retry: retryNumber, attemptId: 'a' + retryNumber }))
+  const captures = attempts.map((attempt, index) => http(503, 'capture-' + (index + 1), attempt.failure, { attemptId: attempt.attemptId, context: { sessionId: 'session-client-test', provider: 'test-provider', attemptId: attempt.attemptId } }))
+  const props = { ...retry(), node: { data: { attempts, current: attempts.at(-1) } } }
+  await renderRow('model-retry', props, { openDetails: false, response: details(captures), interact: async ({ row, toggle, update }) => {
+    assert.match(row.visible, /capture-3/)
+    assert.doesNotMatch(row.visible, /capture-1|capture-2/)
+    assert.match(row.visible, /更早的报错 · 2/)
+    let next = await toggle(withClass(row.tree, 'bt_earlierErrors')[0], true)
+    assert.doesNotMatch(next.visible, /capture-1|capture-2/)
+    next = await toggle(withClass(next.tree, 'bt_earlierError')[0], true)
+    assert.match(next.visible, /capture-1/)
+    assert.doesNotMatch(next.visible, /capture-2/)
+    const current = { ...attempts.at(-1), seq: 40, retry: 4, attemptId: 'a4' }
+    next = await update({ ...props, node: { data: { attempts: [...attempts, current], current } } })
+    assert.equal(withClass(next.tree, 'bt_earlierErrors')[0].props.open, false)
+    assert.doesNotMatch(next.visible, /capture-1|capture-2|capture-3/)
+    assert.equal(withClass(next.tree, 'bt_attempt').filter((block) => block.type === 'div').length, 4, 'no errors are discarded or deduplicated')
+  } })
+})
+
+test('report reads complete enabled-plugin environment on every click without cached inventory or private fields', async () => {
+  const names = Array.from({ length: 125 }, (_, index) => ({ name: 'enabled-plugin-' + index, version: '1.2.' + index }))
+  await withClipboard(async (copied) => {
+    await renderRow('turn-error', terminal(), { openDetails: false, response: reportPayload(), environmentRespond: async (_options, count) => jsonResult({ runtime: {
+      dshVersion: '0.2.2-rc.2', pluginVersion: '0.12.0', pluginsStatus: 'complete',
+      enabledPlugins: [...names, names[0], { name: 'new-plugin', version: count === 1 ? '1.0.0' : '2.0.0', config: 'PRIVATE_CONFIG', path: 'PRIVATE_PATH', source: 'PRIVATE_SOURCE' }],
+    } }), interact: async ({ row, click }) => {
+      assert.equal(row.environmentCalls.length, 0, 'no inventory request before manual report generation')
+      let next = await click(withClass(row.tree, 'bt_reportCopy')[0])
+      assert.equal(next.environmentCalls.length, 1)
+      const line = copied[0].split('\n').find((line) => line.startsWith('已启用第三方插件: '))
+      for (const plugin of names) assert.ok(line.includes(plugin.name + '@' + plugin.version))
+      assert.equal(line.split('enabled-plugin-0@').length - 1, 1)
+      assert.match(line, /new-plugin@1\.0\.0/)
+      assert.doesNotMatch(copied[0], /PRIVATE_CONFIG|PRIVATE_PATH|PRIVATE_SOURCE/)
+      next = await click(withClass(next.tree, 'bt_reportCopy')[0])
+      assert.equal(next.environmentCalls.length, 2, 'inventory is not reused from cached evidence')
+      assert.match(copied[1], /new-plugin@2\.0\.0/)
+      assert.doesNotMatch(copied[1], /new-plugin@1\.0\.0/)
+      assert.equal(next.calls.length, 1, 'network evidence still reuses its completed cache')
+    } })
+  })
+})
+
+test('unavailable or partial plugin inventory remains explicit rather than claiming an empty list', async () => {
+  for (const [environmentRespond, marker] of [
+    [async () => { throw Error('SECRET_ENV_ERROR') }, '清单读取失败或不可用'],
+    [async () => jsonResult({ runtime: { enabledPlugins: [{ name: 'known-plugin', version: null }], pluginsStatus: 'partial' } }), '部分插件信息未能确认'],
+    [async () => jsonResult({ runtime: { enabledPlugins: [], pluginsStatus: 'complete' } }), '已启用第三方插件: 无'],
+  ]) await withClipboard(async (copied) => {
+    await renderRow('turn-error', terminal(), { openDetails: false, response: reportPayload(), environmentRespond, interact: async ({ row, click }) => {
+      await click(withClass(row.tree, 'bt_reportCopy')[0])
+      assert.ok(copied[0].includes(marker))
+      assert.doesNotMatch(copied[0], /SECRET_ENV_ERROR/)
+    } })
+  })
+})
+
+test('changing identity aborts inventory read and cannot copy old report', async () => {
+  const pending = deferred()
+  await withClipboard(async (copied) => {
+    await renderRow('turn-error', terminal(), { openDetails: false, response: reportPayload(), environmentRespond: () => pending.promise, interact: async ({ row, update, settle }) => {
+      const task = withClass(row.tree, 'bt_reportCopy')[0].props.onClick()
+      let next = await settle()
+      assert.equal(next.environmentCalls.length, 1)
+      next = await update({ ...terminal(), sessionId: 'new-report-session' })
+      assert.equal(next.environmentCalls[0].options.signal.aborted, true)
+      pending.resolve(jsonResult({ runtime: { enabledPlugins: [{ name: 'OLD_ENV', version: '1' }], pluginsStatus: 'complete' } }))
+      await task
+      assert.equal(copied.length, 0)
+    } })
+  })
+})
 
 test('only five inline renderers and the automatic-compaction definition are registered', () => {
   assert.deepEqual([...client.module.inject].sort(), ['locale', 'slots', 'uiConversation'])
@@ -300,31 +623,29 @@ test('unloading restores shipped cells without same-priority collisions', () => 
   assert.ok([...mounted.occupied.values()].every((entry) => entry.shipped))
 })
 
-test('default summary omits native chain while complete evidence preserves deepest code and endpoint', async () => {
-  const row = await renderRow('turn-error', terminal(), { response: details([socket()]) })
-  assert.doesNotMatch(row.primary, /ECONNRESET|read ECONNRESET/)
-  assert.match(text(withClass(row.tree, 'bt_primary')[0]), /ECONNRESET.*read ECONNRESET/)
-  assert.match(row.primary, /Connection error\./)
-  assert.match(row.primary, /TRANSPORT/)
-  assert.doesNotMatch(row.primary, /fetch failed|socket wrapper/)
+test('default capture preserves deepest code while complete evidence and native original stay independently folded', async () => {
+  const row = await renderRow('turn-error', terminal(), { openDetails: false, response: details([socket()]) })
+  assert.match(row.primary, /ECONNRESET.*read ECONNRESET/)
+  assert.doesNotMatch(row.primary, /Connection error\.|TRANSPORT|fetch failed|socket wrapper/)
   assertQuiet(row.primary)
   for (const value of ['Connection error.', 'TRANSPORT', 'fetch failed', 'socket wrapper', 'ECONNRESET', '10.0.0.1', '443', 'gateway.example', '/v1/chat/completions']) assert.ok(row.full.includes(value), `raw details lost ${value}`)
-  assert.equal(row.beforeDisclosure.calls.length, 0)
+  assert.equal(row.beforeDisclosure.calls.length, 1)
   assert.ok(elements(row.beforeDisclosure.tree, 'details').every((node) => !node.props.open))
   assert.match(row.calls[0].url, /^api\/better-tips\/details\?/)
 })
 
-test('literal first-line excerpt stays outside disclosure while full original remains verbatim inside', async () => {
+test('native multiline original is not excerpted and opens in one native disclosure', async () => {
   const original = 'Connection error.\nprovider diagnostic: keep this line'
   const capture = socket({ failure: { code: 'TRANSPORT', message: original } })
   for (const response of [details([]), details([capture])]) {
-    const row = await renderRow('turn-error', terminal(original), { response })
-    assertOriginal(row, { code: 'TRANSPORT', message: original })
-    assert.equal(text(withClass(row.tree, 'bt_preview')[0]), '[TRANSPORT] Connection error.…')
-    assert.match(row.primary, /摘要 · 完整原文见详情/)
-    assert.ok(!row.primary.includes('provider diagnostic'))
-    assert.ok(!row.primary.includes('ECONNRESET'))
-    if (response.items.length) assert.ok(row.full.indexOf(original) < row.full.indexOf('ECONNRESET'))
+    await renderRow('turn-error', terminal(original), { openDetails: false, response, interact: async ({ row, toggle }) => {
+      assertOriginal(row, { code: 'TRANSPORT', message: original })
+      assert.equal(withClass(row.tree, 'bt_preview').length, 0)
+      assert.doesNotMatch(row.visible, /provider diagnostic|摘要 ·/)
+      const next = await toggle(withClass(row.tree, 'bt_disclosure')[0], true)
+      assert.ok(next.visible.includes(original))
+      assert.equal(next.calls.length, 1)
+    } })
   }
 })
 
@@ -332,10 +653,10 @@ test('HTTP status/statusText is primary; headers, body, endpoint and timing are 
   const raw = { message: '504 status code (no body)', code: 'SERVER' }
   const row = await renderRow('turn-error', terminal(raw.message, raw.code), { response: details([http(504, 'Gateway Timeout', raw)]) })
   assert.match(text(withClass(row.tree, 'bt_primary')[0]), /HTTP\s*504.*Gateway Timeout/)
-  assert.doesNotMatch(row.primary, /Gateway Timeout/)
+  assert.match(row.primary, /Gateway Timeout/)
   assertQuiet(row.primary)
   for (const value of ['Caddy', 'request-debug-id', 'raw-response-504', 'provider detail', 'gateway.example', '/v1/chat/completions', raw.message]) assert.ok(row.full.includes(value), `HTTP evidence lost ${value}`)
-  assert.doesNotMatch(row.primary, /raw-response-504|provider detail/)
+  assert.match(row.primary, /raw-response-504/); assert.doesNotMatch(row.primary, /provider detail/)
 })
 
 test('auth fallback preserves raw provider code/message and adds separate category advice without guessing quota', async () => {
@@ -358,7 +679,7 @@ test('exact matching includes step and original failure, never a neighboring att
   assert.match(text(withClass(second.tree, 'bt_primary')), /HTTP\s*431/)
   assert.doesNotMatch(text(withClass(second.tree, 'bt_primary')), /504/)
   const other = await renderRow('turn-error', terminal(), { response: details([socket({ step: 8 })]) })
-  assert.match(other.primary, /Connection error\./)
+  assert.match(other.primary, /未取得额外网络诊断/)
   assert.doesNotMatch(other.primary, /ECONNRESET/)
 })
 
@@ -376,8 +697,8 @@ test('broken SSE preserves its deepest native cause primary and stream metadata 
   capture.detail = { ...capture.detail, kind: 'stream', status: 200, bytes: 54321 }
   const row = await renderRow('turn-error', terminal(), { response: details([capture]) })
   assert.match(text(withClass(row.tree, 'bt_primary')), /ECONNRESET/)
-  assert.doesNotMatch(row.primary, /ECONNRESET|54321|fetch failed|socket wrapper/)
-  assert.match(row.primary, /Connection error\./)
+  assert.match(row.primary, /ECONNRESET/)
+  assert.doesNotMatch(row.primary, /54321|fetch failed|socket wrapper|Connection error\./)
   assertQuiet(row.primary)
   assert.match(row.full, /54321/)
   assert.match(row.full, /fetch failed/)
@@ -392,7 +713,7 @@ test('one non-exact capture has only the short unconfirmed marker, never specula
   const row = await renderRow('model-retry', retry(), { response: details([http(499, 'Client Closed Request')]) })
   assert.match(row.full, /HTTP\s*499/)
   assert.match(row.full, /关联未确认/)
-  assert.doesNotMatch(row.primary, /HTTP\s*499|关联未确认/)
+  assert.match(row.primary, /HTTP\s*499.*关联未确认|关联未确认.*HTTP\s*499/)
   assertQuiet(row.primary)
   assert.doesNotMatch(row.full, /可能是同一次|例如我们|只有这一条捕获|与本行的.*不同|无法证实/)
   assert.match(row.full, /Connection error\./)
@@ -401,9 +722,8 @@ test('one non-exact capture has only the short unconfirmed marker, never specula
 
 test('multiple unmatched captures stay candidates in details; raw row failure stays primary', async () => {
   const row = await renderRow('model-retry', retry(), { response: details([http(499, 'Client Closed Request'), http(431, 'Request Header Fields Too Large')]) })
-  assert.match(row.primary, /Connection error\./)
-  assert.match(row.primary, /TRANSPORT/)
-  assert.doesNotMatch(row.primary, /HTTP\s*(499|431)|关联未确认|候选|不一致|捕获/)
+  assert.doesNotMatch(row.primary, /Connection error\.|TRANSPORT|HTTP\s*(499|431)/)
+  assert.match(row.primary, /候选捕获/)
   assert.match(row.full, /499/)
   assert.match(row.full, /431/)
   assert.match(row.full, /候选|另一次|candidate/i)
@@ -418,12 +738,11 @@ test('loading, empty capture and API failure never displace the primary error', 
     { key: 'ui.loadFailed', options: { error: new Error('offline-test-marker') } },
   ]) {
     const row = await renderRow('turn-error', terminal(), options)
-    assert.match(row.primary, /Connection error\./)
-    assert.match(row.primary, /TRANSPORT/)
-    assertQuiet(row.primary)
+    assert.doesNotMatch(row.primary, /Connection error\.|TRANSPORT/)
+    assertOriginal(row, failure)
     const marker = client.t(key, { message: '', error: '' }).replace(/\{[^{}]+\}/g, '').trim()
     assert.ok(row.full.includes(marker), `${key} should be available in details`)
-    assert.equal(row.primary.includes(marker), false, `${key} leaked into primary`)
+    assert.equal(row.primary.includes(marker), true, `${key} is honestly visible without fabricated capture`)
     if (options.status) assert.match(row.full, /HTTP\s*401/)
     if (options.error) assert.match(row.full, /offline-test-marker/)
   }
@@ -435,10 +754,8 @@ test('retry summary includes state/count/delay and the same native primary', asy
     assert.match(row.primary, /重试/)
     assert.match(row.primary, /2\s*\/\s*5/)
     assert.match(row.primary, /987\s*(?:ms|毫秒)|0\.987\s*s/)
-    assert.doesNotMatch(row.primary, /ECONNRESET/)
-    assert.match(text(withClass(row.tree, 'bt_primary')), /ECONNRESET/)
-    assert.match(row.primary, /Connection error\./)
-    assert.match(row.primary, /TRANSPORT/)
+    assert.match(row.primary, /ECONNRESET/)
+    assert.doesNotMatch(row.primary, /Connection error\.|TRANSPORT/)
     assertOriginal(row, failure)
     assertMainAdvice(row, '检查代理与上游连接')
     assertQuiet(row.primary)
@@ -457,20 +774,20 @@ const manualFailure = {
 }
 const autoFailure = {
   sessionId: 'session-client-compact-auto',
-  node: { data: { compactionId: 'compact-1', startedAt: 1000, endedAt: 4000, endSeq: 8, error: 'Connection error.' } },
+  node: { data: { compactionId: 'compact-1', startedAt: 1000, endedAt: 4000, endSeq: 8, error: 'summarization produced no text summary content' } },
 }
 
 test('manual/auto compaction failures use the same native primary; metadata stays expanded', async () => {
   for (const [key, props] of [['manual-compaction', manualFailure], ['better-tips-compaction', autoFailure]]) {
     const row = await renderRow(key, props, { response: compactions() })
     assert.match(row.primary, /压缩|compact/i)
-    assert.doesNotMatch(row.primary, /ECONNRESET|read ECONNRESET/)
+    assert.match(row.primary, /ECONNRESET|read ECONNRESET/)
     assert.match(row.full, /ECONNRESET|read ECONNRESET/)
     assert.equal(withClass(row.tree, 'bt_compactionHistory').length, 1)
     assert.equal(withClass(row.tree, 'bt_attempt').length, 2)
     assert.doesNotMatch(row.primary, /provider-debug|model-debug|次尝试|等待|重试/)
     const original = key === 'manual-compaction' ? manualFailure.node.data.command.outcome.text : autoFailure.node.data.error
-    assert.ok(row.primary.includes(original), 'the original compaction error stays visible')
+    assert.ok(!row.primary.includes(original), 'native compaction error stays in its disclosure')
     assertOriginal(row, { message: original })
     assertMainAdvice(row, '展开错误详情，核对请求地址与服务端日志。')
     assertCaptureAdvice(row, '检查代理与上游连接')
@@ -481,15 +798,181 @@ test('manual/auto compaction failures use the same native primary; metadata stay
   }
 })
 
+test('manual compaction replaces generic notice with exact durable transaction failure in display copy and report', async () => {
+  const concrete = 'summary is not smaller than the shadowed content (900 estimated framed tokens >= 800)'
+  const source = sessionFixture([
+    logEvent(1, 'command/run', { commandId: 'cmd-1', name: 'compact' }),
+    logEvent(2, 'compaction/start', { sourceCommandId: 'cmd-1', compactionId: 'compact-exact' }),
+    logEvent(3, 'compaction/end', { sourceCommandId: 'cmd-OTHER', compactionId: 'other', error: 'FOREIGN_ERROR' }),
+    logEvent(4, 'compaction/end', { sourceCommandId: 'cmd-1', compactionId: 'compact-exact', error: concrete }),
+    logEvent(5, 'command/done', { commandId: 'cmd-1', kind: 'error', text: manualFailure.node.data.command.outcome.text }),
+  ])
+  await withClipboard(async (copied) => {
+    await renderRow('manual-compaction', manualFailure, { openDetails: false, sessions: source.service, response: { ...compactions([]), runtime: reportPayload().runtime }, interact: async ({ row, click }) => {
+      assert.ok(row.visible.includes(concrete))
+      assert.ok(!row.visible.includes(manualFailure.node.data.command.outcome.text))
+      assert.doesNotMatch(row.full, /FOREIGN_ERROR/)
+      await click(elements(row.tree, 'button').find((node) => text(node) === '复制完整错误'))
+      await click(withClass(row.tree, 'bt_reportCopy')[0])
+      assert.equal(copied[0], concrete)
+      assert.ok(copied[1].includes(concrete))
+      assert.ok(!copied[1].includes(manualFailure.node.data.command.outcome.text))
+    } })
+  })
+  assert.equal(source.observers.size, 0)
+  assert.equal(source.stats.subscriptions, source.stats.cleanups)
+})
+
+test('manual compaction rejects ambiguous transient and foreign transactions and updates on exact arrival', async () => {
+  const event = (seq, id, error) => logEvent(seq, 'compaction/end', { sourceCommandId: 'cmd-1', compactionId: id, error })
+  for (const events of [
+    [event(3, 'a', 'AMBIGUOUS_A'), event(4, 'b', 'AMBIGUOUS_B')],
+    [{ type: 'transient', event: event(3, 'a', 'TRANSIENT_ERROR') }],
+    [logEvent(3, 'compaction/end', { sourceCommandId: 'cmd-other', compactionId: 'a', error: 'FOREIGN_ERROR' })],
+  ]) {
+    const source = sessionFixture(events)
+    const row = await renderRow('manual-compaction', manualFailure, { openDetails: false, sessions: source.service, response: compactions([]) })
+    assert.ok(row.visible.includes(manualFailure.node.data.command.outcome.text))
+    assert.match(row.visible, /具体失败记录尚未加载/)
+    assert.doesNotMatch(row.full, /AMBIGUOUS_|TRANSIENT_ERROR|FOREIGN_ERROR/)
+  }
+  const source = sessionFixture([])
+  await renderRow('manual-compaction', manualFailure, { openDetails: false, sessions: source.service, response: compactions([]), interact: async ({ row, settle, update }) => {
+    source.publish([event(4, 'exact', 'summarization produced no text summary content')])
+    let next = await settle()
+    assert.match(next.visible, /summarization produced no text summary content/)
+    const changed = structuredClone(manualFailure)
+    changed.sessionId = 'session-new'
+    changed.node.data.command.commandId = 'cmd-new'
+    next = await update(changed)
+    assert.doesNotMatch(next.full, /summarization produced no text summary content/)
+    source.publish([event(4, 'exact', 'OLD_IDENTITY_LEAK')])
+    next = await settle()
+    assert.doesNotMatch(next.full, /OLD_IDENTITY_LEAK/)
+  } })
+  assert.equal(source.observers.size, 0)
+})
+
+test('loaded compaction failure survives pagination error and summary failure remains separate from native notice', async () => {
+  const concrete = 'summarization produced no text summary content'
+  const event = logEvent(4, 'compaction/end', { sourceCommandId: 'cmd-1', compactionId: 'exact', error: concrete })
+  const row = await renderRow('manual-compaction', manualFailure, { openDetails: false,
+    sessions: sessionFixture([event], { loadError: Error('fixture pagination failed') }).service, response: compactions([]) })
+  assert.ok(row.visible.includes(concrete))
+  const record = { ...compactFailureRecord, attempts: [{ failure: { code: 'TRANSPORT', message: 'Stream ended without finish_reason' } }] }
+  await withClipboard(async (copied) => {
+    await renderRow('manual-compaction', manualFailure, { openDetails: false, response: { ...compactions([record]), runtime: reportPayload().runtime }, interact: async ({ row, click }) => {
+      assert.match(row.visible, /摘要请求报错 · 关联未确认.*Stream ended without finish_reason/)
+      assert.ok(row.visible.includes(manualFailure.node.data.command.outcome.text), 'separate native command notice remains honest')
+      await click(withClass(row.tree, 'bt_reportCopy')[0])
+      assert.match(copied[0], /摘要请求报错: \[TRANSPORT\] Stream ended without finish_reason/)
+    } })
+  })
+})
+
+test('manual durable failure hides AUTH and filters common credentials without changing source event', async () => {
+  for (const message of ['AUTH: ARBITRARY_PRIVATE_ERROR', 'unrecognized-auth-value', 'provider failure sk-credentialSecret123456789']) {
+    const event = logEvent(4, 'compaction/end', { sourceCommandId: 'cmd-1', compactionId: 'exact', error: message })
+    const row = await renderRow('manual-compaction', manualFailure, { openDetails: false, sessions: sessionFixture([event]).service, response: compactions([]) })
+    assert.doesNotMatch(row.full, /ARBITRARY_PRIVATE_ERROR|unrecognized-auth-value|credentialSecret123456789/)
+    assert.equal(event.data.error, message)
+  }
+})
+
+test('automatic durable compaction text is protected in fallback, report, target log and neighbor log', async () => {
+  for (const message of ['AUTH: ARBITRARY_AUTO_AUTH_VALUE', 'unrecognized-auto-credential-value', 'provider failure sk-credentialSecret123456789']) {
+    const props = { ...autoFailure, node: { data: { ...autoFailure.node.data, error: message } } }
+    const event = logEvent(8, 'compaction/end', { compactionId: 'compact-1', error: message })
+    const source = sessionFixture([event, logEvent(9, 'turn/end', { turn: 9, step: 3, error: failure })])
+    await withClipboard(async (copied) => {
+      const row = await renderRow('better-tips-compaction', props, { response: compactions([]), sessions: source.service, clickLog: true, interact: async ({ row, click }) => {
+        assert.doesNotMatch(row.full, /ARBITRARY_AUTO_AUTH_VALUE|unrecognized-auto-credential-value|credentialSecret123456789/)
+        assert.match(row.full, /正文已隐藏|认证错误正文已隐藏/)
+        assert.match(text(withClass(row.tree, 'bt_logJson')[0]), /compaction diagnostic hidden/)
+        await click(withClass(row.tree, 'bt_reportCopy')[0])
+        assert.doesNotMatch(copied[0], /ARBITRARY_AUTO_AUTH_VALUE|unrecognized-auto-credential-value|credentialSecret123456789/)
+      } })
+      assert.equal(event.data.error, message, 'durable event is never changed')
+      assert.ok(row.full.includes('compaction diagnostic hidden'))
+    })
+    const neighboring = await renderRow('turn-error', terminalLog(9), { sessions: source.service, clickLog: true })
+    assert.doesNotMatch(neighboring.full, /ARBITRARY_AUTO_AUTH_VALUE|unrecognized-auto-credential-value|credentialSecret123456789/)
+  }
+})
+
+test('compaction selects final max-tokens or incomplete attempt without reviving an earlier network failure', async () => {
+  for (const [status, finishReason] of [['max-tokens', 'max-tokens'], ['incomplete', 'unexpected-kind']]) {
+    const earlier = { index: 1, attemptId: 'older-summary', finishReason: 'error', failure: { code: 'SERVER', message: 'EARLIER_SUMMARY_FAILURE' }, detail: http(502, 'EARLIER_CAPTURE').detail }
+    const latest = { index: 2, attemptId: 'latest-summary', finishReason }
+    const record = { ...compactFailureRecord, status, attempts: [earlier, latest] }
+    await withClipboard(async (copied) => {
+      await renderRow('manual-compaction', manualFailure, { openDetails: false, response: compactions([record]), interact: async ({ row, click, toggle }) => {
+        assert.doesNotMatch(row.visible, /EARLIER_SUMMARY_FAILURE|EARLIER_CAPTURE|HTTP 502/)
+        assert.ok(row.visible.includes('finish=' + finishReason))
+        assert.equal(withClass(row.tree, 'bt_nativeFallback').length, 1)
+        await click(withClass(row.tree, 'bt_reportCopy')[0])
+        assert.doesNotMatch(copied[0], /EARLIER_SUMMARY_FAILURE|EARLIER_CAPTURE|HTTP 502/)
+        assert.ok(copied[0].includes('finish=' + finishReason))
+        assert.match(copied[0], /未取得唯一匹配的底层证据/)
+        const expanded = await toggle(withClass(row.tree, 'bt_disclosure')[0], true)
+        assert.ok(expanded.full.includes('EARLIER_SUMMARY_FAILURE'), 'earlier evidence remains in history')
+        assert.ok(expanded.full.includes('EARLIER_CAPTURE'))
+        assert.doesNotMatch(expanded.visible, /EARLIER_SUMMARY_FAILURE|EARLIER_CAPTURE|HTTP 502/)
+      } })
+    })
+  }
+})
+
 test('compaction without capture falls back to raw error, with evidence status only in details', async () => {
-  const auto = await renderRow('better-tips-compaction', { ...autoFailure, node: { data: { ...autoFailure.node.data, error: 'MAX_TOKENS: summarization truncated at token cap' } } }, { response: compactions([]) })
-  assert.match(auto.primary, /MAX_TOKENS: summarization truncated at token cap/)
+  const auto = await renderRow('better-tips-compaction', { ...autoFailure, node: { data: { ...autoFailure.node.data, error: 'summarization truncated at the token cap (incomplete checkpoint)' } } }, { response: compactions([]) })
+  assert.match(auto.primary, /未取得额外网络诊断/)
+  assert.match(auto.primary, /MAX_TOKENS/)
+  assert.equal(withClass(auto.tree, 'bt_nativeFallback').length, 1)
+  assert.equal(withClass(auto.tree, 'bt_network', true).length, 0)
+  assertOriginal(auto, { code: 'MAX_TOKENS', message: 'summarization truncated at the token cap (incomplete checkpoint)' })
   assertMainAdvice(auto, '摘要输出 token 上限')
   assertQuiet(auto.primary)
   const manual = await renderRow('manual-compaction', manualFailure, { response: compactions([]) })
-  assert.match(manual.primary, /Compaction could not produce a useful summary\./)
+  assert.match(manual.primary, /未取得额外网络诊断/)
+  assert.ok(manual.primary.includes(manualFailure.node.data.command.outcome.text))
+  assertOriginal(manual, { message: manualFailure.node.data.command.outcome.text })
   assertMainAdvice(manual, '展开错误详情，核对请求地址与服务端日志。')
   assertQuiet(manual.primary)
+})
+
+test('compaction native-only failures stay visible and source-labelled through missing capture states', async () => {
+  for (const options of [
+    { pending: true },
+    { response: compactions([]) },
+    { response: compactions([{ ...compactFailureRecord, attempts: [{ failure }] }]) },
+    { response: { records: [], capture: { installed: false, reason: 'config-disabled' } } },
+    { response: { records: [], capture: { installed: false, reason: 'unavailable' } } },
+    { status: 503 },
+  ]) {
+    for (const [key, props, message] of [
+      ['manual-compaction', manualFailure, manualFailure.node.data.command.outcome.text],
+      ['better-tips-compaction', autoFailure, autoFailure.node.data.error],
+    ]) {
+      const row = await renderRow(key, props, { ...options, openDetails: false })
+      assert.ok(row.visible.includes(message))
+      const native = withClass(row.tree, 'bt_nativeFallback')[0]
+      assert.ok(native)
+      assert.match(text(native), /DSH 原生报错/)
+      assert.equal(withClass(row.tree, 'bt_original').filter((node) => text(node) === message).length, 1, 'native failure is not duplicated in the log disclosure')
+      assert.equal(withClass(row.tree, 'bt_network', true).length, 0, 'native text never masquerades as plugin capture')
+      assert.equal(withClass(row.tree, 'bt_reportCopy', true).length, 1)
+    }
+  }
+  const waiting = deferred()
+  await renderRow('better-tips-compaction', autoFailure, { openDetails: false, respond: () => waiting.promise, interact: async ({ row, settle }) => {
+    assert.ok(row.visible.includes(autoFailure.node.data.error))
+    waiting.resolve(jsonResult(compactions()))
+    const ready = await settle()
+    assert.equal(withClass(ready.tree, 'bt_nativeFallback').length, 0)
+    assert.match(ready.visible, /插件捕获的底层报错.*ECONNRESET/)
+    assert.ok(!ready.visible.includes(autoFailure.node.data.error), 'captured evidence replaces fallback, native source remains folded')
+    assert.equal(ready.calls.length, 1)
+  } })
 })
 
 test('successful manual/auto compaction preserves counts/summary; request metadata is expanded', async () => {
@@ -548,7 +1031,8 @@ test('confirmed deepest native codes select concise advice without changing orig
     assertMainAdvice(row, fragment)
     const native = withClass(row.tree, 'bt_primary')
     assert.equal(native.length, 1)
-    assert.equal(text(native[0]), `[${code}] ${nativeMessage}`, `${code} native headline remains verbatim`)
+    assert.equal(text(native[0]), `[${code}] native diagnostic for ${code}…`, `${code} capture preview is a bounded first line`)
+    assert.ok(row.full.includes(nativeMessage), 'complete native message remains verbatim in network details')
     assert.ok(row.full.includes('fetch failed'), 'outer cause remains in raw details')
   }
 })
@@ -563,7 +1047,7 @@ test('confirmed HTTP status selects advice while preserving the response headlin
     const row = await renderRow('turn-error', terminal(), { response: details([capture]) })
     assertOriginal(row, failure)
     assertMainAdvice(row, fragment)
-    assert.equal(text(withClass(row.tree, 'bt_primary')[0]), `HTTP ${status} ${statusText}`)
+    assert.equal(text(withClass(row.tree, 'bt_primary')[0]), `HTTP ${status} ${statusText} · raw-response-${status}…`)
     assert.ok(row.full.includes(capture.detail.body), 'response body remains unchanged in details')
   }
 })
@@ -581,7 +1065,7 @@ test('structured exact provider error.code or error.type takes precedence over H
       const advice = assertMainAdvice(row, fragment)
       assert.ok(!advice.includes(excluded), `${field}=${code} overrides generic HTTP 429 advice`)
       assert.match(text(withClass(row.tree, 'bt_primary')), /HTTP 429 Too Many Requests/)
-      assert.doesNotMatch(row.primary, /HTTP 429 Too Many Requests/)
+      assert.match(row.primary, /HTTP 429 Too Many Requests/)
       assert.ok(row.full.includes(capture.detail.body), 'structured JSON is preserved verbatim')
       assert.ok(!row.primary.includes(capture.detail.body), 'provider body stays collapsed')
     }
@@ -620,9 +1104,8 @@ test('unconfirmed HTTP401 capture cannot change original TRANSPORT main advice',
   ]) {
     const row = await renderRow('turn-error', terminal(), { response: details([capture]) })
     assert.equal(assertMainAdvice(row), expected)
-    assert.doesNotMatch(row.primary, /API 密钥/)
-    assert.match(row.full, /HTTP 401 Unauthorized|关联未确认/)
-    assert.doesNotMatch(row.primary, /HTTP 401 Unauthorized|关联未确认/)
+    assert.doesNotMatch(assertMainAdvice(row), /API 密钥/)
+    assert.match(row.primary, /HTTP 401 Unauthorized|关联未确认/)
     assertCaptureAdvice(row, 'API 密钥')
     assertOriginal(row, failure)
   }
@@ -799,7 +1282,7 @@ test('missing raw-log coordinates disable the opener instead of falling back to 
 
 test('automatic compaction log uses endSeq and validates the exact compaction identity', async () => {
   const props = { ...autoFailure, node: { ...autoFailure.node, anchorSeq: 11, data: { ...autoFailure.node.data, endSeq: 22 } } }
-  const event = logEvent(22, 'compaction/end', { compactionId: 'compact-1', error: 'Connection error.' })
+  const event = logEvent(22, 'compaction/end', { compactionId: 'compact-1', error: 'summarization produced no text summary content' })
   const source = sessionFixture([logEvent(11, 'compaction/start', { compactionId: 'compact-1' }), event])
   const row = await renderRow('better-tips-compaction', props, { sessions: source.service, clickLog: true })
   assertLogTarget(row, event)
@@ -822,7 +1305,7 @@ test('manual compaction selects its unique command/done, not command/run or anot
   const source = sessionFixture([run, done, other])
   const row = await renderRow('manual-compaction', manualFailure, { sessions: source.service, clickLog: true })
   assertLogTarget(row, done)
-  assert.deepEqual(source.stats.loads, [1])
+  assert.deepEqual(source.stats.loads, [1, 1])
   for (const events of [[run], [run, other], [run, done, { ...done, seq: 10 }]]) {
     const rejected = await renderRow('manual-compaction', manualFailure, { sessions: sessionFixture(events).service, clickLog: true })
     assert.ok(rejected.full.includes(logMissing), 'absent or ambiguous done events remain unresolved')
@@ -939,7 +1422,7 @@ test('legacy evidence never confirms itself and foreign request context stays un
   for (const capture of [socket({ provenance: undefined }), socket({ context: { sessionId: 'other-session' } })]) {
     const row = await renderRow('turn-error', terminal(), { response: details([capture]) })
     assert.match(row.full, /关联未确认/)
-    assert.doesNotMatch(row.primary, /关联未确认/)
+    assert.match(row.primary, /关联未确认/)
     assert.doesNotMatch(assertMainAdvice(row), /检查代理与上游连接/)
   }
 })
@@ -1123,48 +1606,41 @@ test('AUTH body protection is not presented as an empty response', async () => {
   assert.ok(!row.full.includes('响应正文为空'))
 })
 
-test('all default row types issue zero diagnostic APIs until their outer disclosure opens', async () => {
+test('failed rows request capture once on mount while successful compaction remains lazy', async () => {
   const marker = { time: 1500, summary: 'preserved summary', shadowedItemCount: 4, shadowedTokenCount: 800 }
-  for (const [key, props] of [
-    ['turn-error', terminal()], ['model-retry', retry()], ['manual-compaction', manualFailure],
-    ['better-tips-compaction', autoFailure], ['compaction', { sessionId: 'session-summary', node: { data: marker } }],
-    ['manual-compaction', { sessionId: 'session-summary', node: { data: { command: {}, compaction: marker } } }],
+  for (const [key, props, expectedReads] of [
+    ['turn-error', terminal(), 1], ['model-retry', retry(), 1], ['manual-compaction', manualFailure, 1],
+    ['better-tips-compaction', autoFailure, 1], ['compaction', { sessionId: 'session-summary', node: { data: marker } }, 0],
+    ['manual-compaction', { sessionId: 'session-summary', node: { data: { command: {}, compaction: marker } } }, 0],
   ]) {
     const source = sessionFixture([])
     const row = await renderRow(key, props, { sessions: source.service, openDetails: false })
-    assert.equal(row.calls.length, 0, `${key} is API-lazy by default`)
-    assert.equal(row.beforeDisclosure.calls.length, 0)
-    assert.equal(source.stats.reads, 0)
-    assert.equal(source.stats.bindings.length, 0)
-    assert.ok(elements(row.tree, 'details').every((node) => !node.props.open), `${key} is folded by default`)
-    assert.equal(text(row.tree, true), row.primary, 'default visible text obeys actual open state')
+    assert.equal(row.calls.length, expectedReads, `${key} has exactly the intended initial read`)
+    assert.equal(row.beforeDisclosure.calls.length, expectedReads)
+    const manualError = key === 'manual-compaction' && props.node.data.command?.outcome?.kind === 'error'
+    assert.equal(source.stats.reads, manualError ? 2 : 0)
+    assert.equal(source.stats.bindings.length, manualError ? 1 : 0)
+    assert.ok(elements(row.tree, 'details').every((node) => !node.props.open))
+    assert.equal(text(row.tree, true), row.primary)
   }
 })
 
-test('long Unicode excerpt is bounded and labelled while full original copies unchanged', async () => {
-  const previous = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
-  const copied = []
-  const message = '😀'.repeat(170) + '\nsecond line must survive copying'
-  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { async writeText (value) { copied.push(value) } } } })
-  try {
+test('long Unicode native original opens completely in one layer and copies unchanged', async () => {
+  await withClipboard(async (copied) => {
+    const message = '😀'.repeat(170) + '\nsecond line must survive copying'
     await renderRow('turn-error', terminal(message), { openDetails: false, interact: async ({ row, toggle, click }) => {
-      const excerpt = text(withClass(row.tree, 'bt_preview')[0])
-      assert.equal(Array.from(excerpt).length, 121, '120 Unicode points plus an explicit ellipsis')
-      assert.ok(excerpt.endsWith('…'))
-      assert.ok(!excerpt.includes('\uFFFD'), 'never splits a surrogate pair')
-      assert.match(row.primary, /摘要 · 完整原文见详情/)
-      assert.ok(!row.primary.includes('second line'))
-      assert.equal(row.calls.length, 0)
+      assert.equal(withClass(row.tree, 'bt_preview').length, 0)
+      assert.doesNotMatch(row.primary, /摘要 ·|second line|😀/)
+      assert.equal(row.calls.length, 1)
       const expanded = await toggle(withClass(row.tree, 'bt_disclosure')[0], true)
       assertOriginal(expanded, { code: 'TRANSPORT', message })
-      assert.ok(expanded.visible.includes(message), 'full text becomes visible on opening')
-      await click(withClass(expanded.tree, 'bt_copy')[0])
+      assert.ok(expanded.visible.includes(message))
+      assert.ok(!expanded.visible.includes('\uFFFD'))
+      assert.equal(withClass(expanded.tree, 'bt_fullOriginal').length, 0)
+      await click(elements(expanded.tree, 'button').find((node) => text(node) === '复制完整错误'))
     } })
     assert.deepEqual(copied, [`[TRANSPORT] ${message}`])
-  } finally {
-    if (previous) Object.defineProperty(globalThis, 'navigator', previous)
-    else delete globalThis.navigator
-  }
+  })
 })
 
 test('durable mixed retry records remain chronological even without volatile captures', async () => {
@@ -1176,18 +1652,21 @@ test('durable mixed retry records remain chronological even without volatile cap
   const props = retry()
   props.node.data = { attempts, current: attempts.at(-1) }
   const row = await renderRow('model-retry', props, { response: details([]) })
-  assert.match(row.primary, /重试记录 · 3/)
-  assert.match(row.primary, /2 类错误/)
+  assert.match(row.primary, /更早的报错 · 2/)
+  assert.doesNotMatch(row.primary, /重试记录 · 3|类别概览|本组包含不同错误/)
   assert.doesNotMatch(row.primary, /→|↔|⇒|->/)
-  assert.match(row.primary, /类别概览|错误类别/)
-  assert.match(assertMainAdvice(row), /本组包含不同错误/)
+  assert.doesNotMatch(row.primary, /first endpoint failed|429 insufficient_quota/)
+  assert.match(assertMainAdvice(row), /查看会话日志/)
   assert.equal(withClass(row.tree, 'bt_history').length, 1)
   const records = withClass(row.tree, 'bt_attempt')
   assert.equal(records.length, 3, 'identical failures at distinct durable seqs must never deduplicate')
-  assert.deepEqual(records.map((record) => record.props.key), [41, 52, 63])
-  assert.deepEqual(records.map((record) => text(withClass(record, 'bt_original')[0])), attempts.map((attempt) => `[${attempt.failure.code}] ${attempt.failure.message}`))
-  assert.ok(records.every((record) => !record.props.open), 'each record stays independently folded')
-  assert.doesNotMatch(row.visible, /原始报错|未取得额外网络诊断|复制完整错误/)
+  assert.deepEqual(records.map((record) => record.props.key), [63, 41, 52])
+  assert.deepEqual(records.toSorted((a, b) => a.props.key - b.props.key).map((record) => text(withClass(record, 'bt_original')[0])), attempts.map((attempt) => `[${attempt.failure.code}] ${attempt.failure.message}`))
+  assert.ok(records.every((record) => record.type === 'div'))
+  assert.ok(withClass(row.tree, 'bt_attemptNative').every((record) => !record.props.open), 'each native original stays independently folded')
+  assert.match(row.visible, /未取得额外网络诊断/)
+  assert.doesNotMatch(row.visible, /复制完整错误|first endpoint failed|429 insufficient_quota/)
+  assert.equal(withClass(row.tree, 'bt_reportCopy', true).length, 1, 'only latest report is outside earlier-error disclosures')
   assert.equal(row.calls.length, 1, 'one outer history read, not one API per durable attempt')
 })
 
@@ -1201,12 +1680,13 @@ test('every retry attempt opens its own exact durable log coordinate and same er
   await renderRow('model-retry', props, { sessions: source.service, response: details([]), interact: async ({ row, toggle, click }) => {
     assert.equal(source.stats.bindings.length, 0)
     for (let index = 0; index < attempts.length; index++) {
-      let record = withClass(row.tree, 'bt_attempt')[index]
-      let next = await toggle(record, true)
-      record = withClass(next.tree, 'bt_attempt')[index]
+      const ownRecord = (tree) => withClass(tree, 'bt_attempt').find((record) => record.props.key === attempts[index].seq)
+      let record = ownRecord(row.tree)
+      let next = await toggle(withClass(record, 'bt_attemptNative')[0], true)
+      record = ownRecord(next.tree)
       assert.ok(!withClass(record, 'bt_logPanel').length)
       next = await click(withClass(record, 'bt_logButton')[0])
-      const panel = withClass(withClass(next.tree, 'bt_attempt')[index], 'bt_logTarget')[0]
+      const panel = withClass(ownRecord(next.tree), 'bt_logTarget')[0]
       assert.equal(panel.props['data-seq'], attempts[index].seq)
       assert.equal(text(withClass(panel, 'bt_logJson')[0]), JSON.stringify(events[index], null, 2))
       assert.equal(withClass(next.tree, 'bt_logTarget').length, index + 1)
@@ -1226,80 +1706,86 @@ test('mixed retry advice remains per-attempt with only exact matched native evid
   const props = retry()
   props.node.data = { attempts: [a, b], current: b }
   const row = await renderRow('model-retry', props, { response: details([captureA, captureB]) })
-  assert.match(assertMainAdvice(row), /本组包含不同错误/)
-  const records = withClass(row.tree, 'bt_attempt')
+  assert.match(assertMainAdvice(row), /Retry-After/)
+  const records = withClass(row.tree, 'bt_attempt').toSorted((a, b) => a.props.key - b.props.key)
   assert.match(text(withClass(records[0], 'bt_primary')), /ECONNRESET/)
   assert.doesNotMatch(text(withClass(records[0], 'bt_primary')), /HTTP 429/)
   assert.match(text(withClass(records[1], 'bt_primary')), /HTTP 429/)
   assert.doesNotMatch(text(withClass(records[1], 'bt_primary')), /ECONNRESET/)
   assert.match(text(withClass(records[0], 'bt_captureAdvice')), /检查代理与上游连接/)
   assert.match(text(withClass(records[1], 'bt_captureAdvice')), /Retry-After/)
+  assert.match(text(records[0], true), /检查代理与上游连接/)
+  assert.match(text(records[1], true), /Retry-After/)
 })
 
-test('compaction attempts have independent folded complete evidence and explicit time-correlation warning', async () => {
+test('compaction latest capture defaults visible while historical originals remain independent', async () => {
   const record = { ...compactFailureRecord, attempts: [
     { index: 1, attemptId: 'ca', failure: { code: 'SERVER', message: '503 first\ncomplete first body' }, detail: http(503, 'Unavailable').detail },
     { index: 2, attemptId: 'cb', failure: { code: 'TRANSPORT', message: 'reset second\ncomplete second body' }, detail: socket().detail },
   ] }
-  await renderRow('better-tips-compaction', autoFailure, { response: compactions([record]), interact: async ({ row, toggle }) => {
-    assert.match(row.visible, /按时间关联 · 未确认请求身份/)
-    const attempts = withClass(row.tree, 'bt_attempt')
+  await renderRow('better-tips-compaction', autoFailure, { openDetails: false, response: compactions([record]), interact: async ({ row, toggle }) => {
+    assert.match(row.visible, /ECONNRESET|关联未确认/)
+    assert.doesNotMatch(row.visible, /complete first body|complete second body|HTTP 503/)
+    let next = await toggle(withClass(row.tree, 'bt_disclosure')[0], true)
+    assert.match(next.visible, /按时间关联 · 未确认请求身份/)
+    const attempts = withClass(next.tree, 'bt_attempt')
     assert.equal(attempts.length, 2)
-    assert.ok(attempts.every((node) => !node.props.open))
-    assert.doesNotMatch(row.visible, /complete first body|complete second body|ECONNRESET|HTTP 503/)
-    const next = await toggle(attempts[0], true)
+    assert.ok(attempts.every((node) => node.type === 'div'))
+    assert.ok(withClass(next.tree, 'bt_attemptNative').every((node) => !node.props.open))
+    assert.doesNotMatch(next.visible, /HTTP 503/)
+    next = await toggle(withClass(next.tree, 'bt_earlierErrors')[0], true)
+    next = await toggle(withClass(next.tree, 'bt_earlierError')[0], true)
+    assert.match(next.visible, /HTTP 503/)
+    next = await toggle(withClass(withClass(next.tree, 'bt_attempt')[0], 'bt_attemptNative')[0], true)
     assert.match(next.visible, /complete first body/)
     assert.doesNotMatch(next.visible, /complete second body/)
-    assert.equal(withClass(next.tree, 'bt_network').length, 2, 'network evidence belongs to each attempt, not an empty duplicated global panel')
+    assert.equal(withClass(next.tree, 'bt_network').length, 3, 'default latest capture plus two isolated history captures')
     assert.ok(next.full.includes('complete second body'))
   } })
 })
 
-const deferred = () => {
-  let resolve, reject
-  const promise = new Promise((yes, no) => { resolve = yes; reject = no })
-  return { promise, resolve, reject }
-}
-const jsonResult = (data) => ({ ok: true, json: async () => data })
-
-test('close and reopen reuse only completed evidence cache, without stale loading or extra fetch', async () => {
-  await renderRow('turn-error', terminal(), { openDetails: false, response: details([socket()]), interact: async ({ row, toggle }) => {
+test('closing native original leaves completed capture visible without extra fetch', async () => {
+  await renderRow('turn-error', terminal(), { openDetails: false, response: details([socket()]), interact: async ({ row, toggle, settle }) => {
+    assert.equal(row.calls.length, 1)
     const opened = await toggle(withClass(row.tree, 'bt_disclosure')[0], true)
-    assert.equal(opened.calls.length, 1)
-    assert.match(opened.full, /ECONNRESET/)
+    assert.match(opened.visible, /Connection error\./)
     const closed = await toggle(withClass(opened.tree, 'bt_disclosure')[0], false)
     assert.equal(closed.calls.length, 1)
-    assert.ok(closed.calls[0].options.signal.aborted)
-    assert.doesNotMatch(closed.visible, /ECONNRESET|fetch failed/)
+    assert.equal(closed.calls[0].options.signal.aborted, false)
+    assert.match(closed.visible, /ECONNRESET/)
+    assert.doesNotMatch(closed.visible, /Connection error\.|fetch failed/)
     const reopened = await toggle(withClass(closed.tree, 'bt_disclosure')[0], true)
-    assert.equal(reopened.calls.length, 1, 'completed same-identity evidence is cached')
-    assert.match(reopened.full, /ECONNRESET/)
+    assert.equal(reopened.calls.length, 1)
+    assert.match(reopened.visible, /Connection error\./)
     assert.doesNotMatch(reopened.visible, /加载中/)
+    assert.equal((await settle()).calls.length, 1, 'no polling after settling')
   } })
 })
 
-test('closing a pending fetch aborts it; reopen starts fresh and late cancelled response cannot poison cache', async () => {
+test('closing native original does not abort pending capture; refresh cancels stale capture and unmount drains', async () => {
   const first = deferred()
-  await renderRow('turn-error', terminal(), { openDetails: false,
+  const result = await renderRow('turn-error', terminal(), { openDetails: false,
     respond: (_url, _options, index) => index === 1 ? first.promise : Promise.resolve(jsonResult(details([http(503, 'Fresh evidence', failure)]))),
-    interact: async ({ row, toggle, settle }) => {
+    interact: async ({ row, toggle, settle, click }) => {
+      assert.equal(row.calls.length, 1)
       let next = await toggle(withClass(row.tree, 'bt_disclosure')[0], true)
-      assert.equal(next.calls.length, 1)
-      assert.match(next.full, /加载中/)
       next = await toggle(withClass(next.tree, 'bt_disclosure')[0], false)
-      assert.ok(next.calls[0].options.signal.aborted)
-      next = await toggle(withClass(next.tree, 'bt_disclosure')[0], true)
+      assert.equal(next.calls[0].options.signal.aborted, false)
+      assert.match(next.visible, /加载中/)
+      next = await click(withClass(next.tree, 'bt_refresh')[0])
       assert.equal(next.calls.length, 2)
-      assert.match(next.full, /Fresh evidence/)
+      assert.equal(next.calls[0].options.signal.aborted, true)
+      assert.match(next.visible, /Fresh evidence/)
       first.resolve(jsonResult(details([http(401, 'STALE_CANCELLED', failure)])))
       next = await settle()
       assert.doesNotMatch(next.full, /STALE_CANCELLED/)
-      next = await toggle(withClass(next.tree, 'bt_disclosure')[0], false)
       next = await toggle(withClass(next.tree, 'bt_disclosure')[0], true)
+      next = await toggle(withClass(next.tree, 'bt_disclosure')[0], false)
       assert.equal(next.calls.length, 2)
-      assert.match(next.full, /Fresh evidence/)
+      assert.match(next.visible, /Fresh evidence/)
     },
   })
+  assert.ok(result.calls.every((call) => call.options.signal.aborted), 'unmount cancels owned request scopes')
 })
 
 test('changing row identity rejects late old-session responses and never sends old log metadata coordinates', async () => {
@@ -1368,7 +1854,7 @@ test('nested disclosure toggle events do not mutate the outer lazy disclosure', 
     outer.props.onToggle({ currentTarget: { open: true }, target: { nested: true } })
     let next = await settle()
     assert.equal(withClass(next.tree, 'bt_disclosure')[0].props.open, false)
-    assert.equal(next.calls.length, 0)
+    assert.equal(next.calls.length, 1)
     next = await toggle(withClass(next.tree, 'bt_disclosure')[0], true)
     assert.equal(next.calls.length, 1)
     const openOuter = withClass(next.tree, 'bt_disclosure')[0]
@@ -1385,31 +1871,23 @@ test('opening then closing before fetch microtask never starts an unnecessary re
     outer.props.onToggle({ currentTarget: { open: true } })
     outer.props.onToggle({ currentTarget: { open: false } })
     const next = await settle()
-    assert.equal(next.calls.length, 0)
+    assert.equal(next.calls.length, 1, 'native toggles do not restart the mount-time capture read')
     assert.equal(withClass(next.tree, 'bt_disclosure')[0].props.open, false)
   } })
 })
 
-test('structured long provider JSON has a useful bounded excerpt but copy preserves complete JSON wrapper', async () => {
-  const previous = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
-  const copied = []
-  const message = '503: ' + JSON.stringify({ error: { message: 'literal provider '.repeat(40) + '\nfull second diagnostic line', type: 'overloaded_error', extra: 'opaque evidence preserved' } })
-  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { async writeText (value) { copied.push(value) } } } })
-  try {
+test('structured long native JSON remains complete with no native excerpt and copies verbatim', async () => {
+  await withClipboard(async (copied) => {
+    const message = '503: ' + JSON.stringify({ error: { message: 'literal provider '.repeat(40) + '\nfull second diagnostic line', type: 'overloaded_error', extra: 'opaque evidence preserved' } })
     await renderRow('turn-error', terminal(message, 'SERVER'), { interact: async ({ row, click }) => {
-      const preview = text(withClass(row.tree, 'bt_preview')[0])
-      assert.match(preview, /^\[SERVER\] HTTP 503 literal provider /)
-      assert.equal(Array.from(preview).length, 121)
-      assert.ok(preview.endsWith('…'))
-      assert.doesNotMatch(row.primary, /opaque evidence|full second diagnostic|overloaded_error/)
+      assert.equal(withClass(row.tree, 'bt_preview').length, 0)
+      assert.doesNotMatch(row.primary, /opaque evidence|full second diagnostic|overloaded_error|摘要/)
       assertOriginal(row, { code: 'SERVER', message })
-      await click(withClass(row.tree, 'bt_copy')[0])
+      assert.ok(row.visible.includes(message))
+      await click(elements(row.tree, 'button').find((node) => text(node) === '复制完整错误'))
     } })
     assert.deepEqual(copied, ['[SERVER] ' + message])
-  } finally {
-    if (previous) Object.defineProperty(globalThis, 'navigator', previous)
-    else delete globalThis.navigator
-  }
+  })
 })
 
 test('same HTTP status with different native codes remains distinct and structured status takes precedence', async () => {
@@ -1420,44 +1898,35 @@ test('same HTTP status with different native codes remains distinct and structur
   const props = retry()
   props.node.data = { attempts, current: attempts[1] }
   const row = await renderRow('model-retry', props, { openDetails: false })
-  assert.match(row.primary, /2 类错误/)
-  assert.match(row.primary, /RATE_LIMIT \/ HTTP 429/)
-  assert.match(row.primary, /QUOTA \/ HTTP 429/)
-  assert.equal(row.calls.length, 0)
+  assert.match(row.primary, /更早的报错 · 1/)
+  assert.match(assertMainAdvice(row), /账号余额、用量配额/)
+  assertOriginal(row, attempts[0].failure)
+  assertOriginal(row, attempts[1].failure)
+  assert.equal(row.calls.length, 1)
   assert.equal(withClass(row.tree, 'bt_history').length, 1)
 })
 
-test('structured HTTP JSON excerpt extracts only its literal message without changing full evidence', async () => {
-  for (const [field, body] of [
-    ['error.message', { error: { message: '真实供应商首行\n第二行必须保留', code: 'overloaded_error' } }],
-    ['message', { message: 'top-level literal message', code: 'arbitrary' }],
+test('complete native JSON is never decoded or shortened in its single native disclosure', async () => {
+  for (const body of [
+    { error: { message: '真实供应商首行\n第二行必须保留', code: 'overloaded_error' } },
+    { message: 'top-level literal message', code: 'arbitrary' },
   ]) {
     const message = `503: ${JSON.stringify(body)}`
-    const row = await renderRow('turn-error', terminal(message, 'SERVER'), { openDetails: false })
-    const excerpt = text(withClass(row.tree, 'bt_preview')[0])
-    assert.match(excerpt, /^\[SERVER\] HTTP 503 /, field)
-    assert.ok(excerpt.includes(field === 'error.message' ? '真实供应商首行' : 'top-level literal message'))
-    assert.doesNotMatch(excerpt, /overloaded_error|arbitrary|"message"|第二行/)
-    assert.match(row.primary, /摘要 · 完整原文见详情/)
-    assertOriginal(row, { code: 'SERVER', message })
+    await renderRow('turn-error', terminal(message, 'SERVER'), { openDetails: false, interact: async ({ row, toggle }) => {
+      assert.equal(withClass(row.tree, 'bt_preview').length, 0)
+      assert.doesNotMatch(row.visible, /真实供应商首行|top-level literal message|摘要/)
+      assertOriginal(row, { code: 'SERVER', message })
+      const next = await toggle(withClass(row.tree, 'bt_disclosure')[0], true)
+      assert.equal(text(withClass(next.tree, 'bt_original')[0]), '[SERVER] ' + message)
+      assert.equal(withClass(next.tree, 'bt_fullOriginal').length, 0)
+    } })
   }
   for (const message of ['503: {"error":{"message":"broken"}', '503: {"error":{"message":42}}', 'prefix 503: {"message":"not an exact wrapper"}']) {
     const row = await renderRow('turn-error', terminal(message, 'SERVER'), { openDetails: false })
-    assert.equal(text(withClass(row.tree, 'bt_preview')[0]), `[SERVER] ${message}`)
+    assert.equal(text(withClass(row.tree, 'bt_original')[0]), `[SERVER] ${message}`)
     assertOriginal(row, { code: 'SERVER', message })
   }
 })
-
-async function withClipboard (operation, write) {
-  const previous = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
-  const copied = []
-  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { clipboard: { writeText: write ?? (async (value) => { copied.push(value) }) } } })
-  try { return await operation(copied) } finally {
-    if (previous) Object.defineProperty(globalThis, 'navigator', previous)
-    else delete globalThis.navigator
-  }
-}
-const reportPayload = (items = [socket()]) => ({ ...details(items), runtime: { dshVersion: '0.2.2-rc.2', pluginVersion: '0.12.0' } })
 
 test('one-click current report loads only on click and exports native error, exact evidence, runtime and timing', async () => {
   await withClipboard(async (copied) => {
@@ -1466,7 +1935,7 @@ test('one-click current report loads only on click and exports native error, exa
     const capture = socket()
     Object.assign(capture.detail, { at: 1700000001000, startedAt: 1700000000000 })
     await renderRow('model-retry', props, { openDetails: false, response: reportPayload([capture, http(401, 'UNRELATED_CAPTURE')]), interact: async ({ row, click }) => {
-      assert.equal(row.calls.length, 0)
+      assert.equal(row.calls.length, 1)
       const next = await click(withClass(row.tree, 'bt_reportCopy')[0])
       assert.equal(next.calls.length, 1)
       assert.match(next.primary, /已复制/)
@@ -1584,13 +2053,32 @@ test('report failure still copies native diagnosis with explicit missing version
   })
 })
 
+test('successful report copy never adds report text; failed fallback disappears after a successful retry', async () => {
+  let denied = true
+  await withClipboard(async () => {
+    await renderRow('turn-error', terminal(), { openDetails: false, response: reportPayload(), interact: async ({ row, click }) => {
+      let next = await click(withClass(row.tree, 'bt_reportCopy')[0])
+      assert.equal(withClass(next.tree, 'bt_reportText').length, 1)
+      assert.doesNotMatch(next.full, /查看报告文本/)
+      denied = false
+      next = await click(withClass(next.tree, 'bt_reportCopy')[0])
+      assert.equal(withClass(next.tree, 'bt_reportText').length, 0)
+      assert.doesNotMatch(next.full, /查看报告文本|DSH 原生报错:/)
+      assert.match(next.visible, /已复制/)
+      assert.equal(next.calls.length, 1)
+    } })
+  }, async () => { if (denied) throw Error('clipboard denied') })
+})
+
 test('clipboard denial exposes selectable report text inline without a second upload or request', async () => {
   await withClipboard(async () => {
     await renderRow('turn-error', terminal(), { openDetails: false, response: reportPayload(), interact: async ({ row, click }) => {
       const next = await click(withClass(row.tree, 'bt_reportCopy')[0])
       assert.match(next.primary, /复制失败，可选择/)
       const report = withClass(next.tree, 'bt_reportText')[0]
-      assert.equal(report.props.open, true)
+      assert.equal(report.type, 'div')
+      assert.equal(elements(report, 'summary').length, 0)
+      assert.ok(next.visible.includes('DSH 原生报错:'))
       assert.match(text(report), /DSH 原生报错:.*Connection error/)
       assert.match(text(report), /插件捕获的底层报错:.*ECONNRESET/)
       assert.equal(next.calls.length, 1)
@@ -1630,23 +2118,24 @@ test('compaction thrown AUTH report never recovers arbitrary authentication text
   })
 })
 
-test('source labels distinguish native excerpts, plugin overview and captured evidence', async () => {
+test('capture label is default and native original has one explicit disclosure without summary copy', async () => {
   const original = 'native message line one\nline two remains intact'
   const raw = { code: 'TRANSPORT', message: original }
-  const row = await renderRow('turn-error', terminal(original), { response: reportPayload([socket({ failure: raw })]) })
-  assert.equal(text(withClass(row.tree, 'bt_source')[0]), 'DSH 原生报错 · 摘要')
-  assert.ok(row.primary.includes('DSH 原生报错 · 摘要'))
+  const row = await renderRow('turn-error', terminal(original), { openDetails: false, response: reportPayload([socket({ failure: raw })]) })
+  assert.equal(withClass(row.tree, 'bt_source').length, 0)
+  assert.doesNotMatch(row.primary, /DSH 原生报错 · 摘要|native message line one/)
   assertOriginal(row, raw)
-  const headings = elements(row.tree, 'h4').map((node) => text(node))
-  assert.ok(headings.includes('DSH 原生报错'))
   const network = withClass(row.tree, 'bt_network')[0]
-  assert.match(text(elements(network, 'summary')[0]), /插件捕获的底层报错/)
+  assert.equal(network.type, 'section')
+  assert.match(text(elements(network, 'h4')[0]), /插件捕获的底层报错/)
+  assert.match(text(elements(withClass(row.tree, 'bt_disclosure')[0], 'summary')[0]), /DSH 原生报错/)
   const attempts = [
     { ...retry('503 first failure', 'SERVER').node.data.current, retry: 1, seq: 20 },
     { ...retry('second failure', 'TRANSPORT').node.data.current, retry: 2, seq: 30 },
   ]
   const overview = await renderRow('model-retry', { ...retry(), node: { data: { attempts, current: attempts[1] } } }, { openDetails: false })
-  assert.equal(text(withClass(overview.tree, 'bt_source')[0]), '插件整理 · 重试概览')
+  assert.equal(withClass(overview.tree, 'bt_disclosure').length, 0, 'no duplicate latest capture/native wrapper around retry history')
+  assert.equal(withClass(overview.tree, 'bt_reportCopy', true).length, 1)
   assertOriginal(overview, attempts[0].failure)
   assertOriginal(overview, attempts[1].failure)
 })
@@ -1694,7 +2183,7 @@ test('support report caps native, deepest evidence and response excerpts while U
         assert.ok(!excerpt.includes('\uFFFD'), 'Unicode points are not cut into invalid surrogate halves')
       }
       assert.doesNotMatch(report, /NATIVE_TAIL_PRESERVED|UNDERLYING_TAIL_PRESERVED|RESPONSE_TAIL_PRESERVED|UNNECESSARY_PROVIDER_FIELD/)
-      await click(withClass(row.tree, 'bt_copy')[0])
+      await click(elements(row.tree, 'button').find((node) => text(node) === '复制完整错误'))
     } })
     assert.equal(copied[1], '[TRANSPORT] ' + message, 'existing raw-error copy remains complete and unmodified')
   })
@@ -1736,7 +2225,7 @@ test('complete provider HTTP JSON wrapper becomes readable once in the short rep
         assert.equal(report.split('SECOND_LINE_UNIQUE_PROVIDER_DIAGNOSTIC').length - 1, 1, 'decoded multiline provider diagnostic appears only once, not again as response excerpt')
         assert.doesNotMatch(report, /响应摘要:|"(?:message|error|type|code|unrelated)"|overloaded_error|NATIVE_WRAPPER_METADATA|RESPONSE_METADATA_NOT_NEEDED|\\\\n/)
         assert.ok(report.length < 1000, 'support report remains concise without JSON scaffolding')
-        await click(withClass(row.tree, 'bt_copy')[0])
+        await click(elements(row.tree, 'button').find((node) => text(node) === '复制完整错误'))
       } })
       assert.equal(copied[1], '[SERVER] ' + message, 'raw-error copy keeps complete original JSON rather than decoded report formatting')
     })

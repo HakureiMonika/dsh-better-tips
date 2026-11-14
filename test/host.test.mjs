@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import fs, { readFile } from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { pathToFileURL } from 'node:url'
 import { apply } from '../index.js'
 
 /**
@@ -70,12 +72,227 @@ test('the detail route mounts when connection arrives after plugin activation an
   const { routes, connect, disposers } = harness({ extraRetries: 0 }, { connectionReady: false })
   assert.equal(routes.length, 0)
   connect()
-  assert.equal(routes.length, 3, 'late service activation must install all three routes')
+  assert.equal(routes.length, 4, 'late service activation must install all four routes')
   const detail = routes.find((entry) => entry.path === '/api/better-tips/details')
   const result = await detail.fetch(new Request('http://localhost/api/better-tips/details?sessionId=session-1&turn=1'))
   assert.equal(result.status, 200)
   for (const entry of disposers) await entry.dispose()
   assert.equal(routes.length, 0, 'the routes belong to the dependency lifetime')
+})
+
+async function reportEnvironment (h, signal) {
+  const route = h.routes.find((entry) => entry.path === '/api/better-tips/environment')
+  return route.fetch(new Request('http://localhost/api/better-tips/environment', { signal }))
+}
+
+async function withInventoryManifests (run) {
+  const root = await fs.mkdtemp(join(tmpdir(), 'better-tips-inventory-'))
+  const manifests = new Map()
+  const reads = new Map()
+  const originalRead = fs.readFile
+  try {
+    const put = async (name, version, suffix = '') => {
+      const directory = join(root, name.replace(/[^A-Za-z0-9]/g, '_') + suffix)
+      await fs.mkdir(directory, { recursive: true })
+      const manifestPath = join(directory, 'package.json')
+      await fs.writeFile(manifestPath, JSON.stringify({ name, ...(version === undefined ? {} : { version }), privateConfig: 'DO_NOT_EXPORT_CONFIG' }))
+      manifests.set(name + suffix, manifestPath)
+      return manifestPath
+    }
+    fs.readFile = async (path, ...args) => { const key = String(path); reads.set(key, (reads.get(key) ?? 0) + 1); return originalRead(path, ...args) }
+    syncBuiltinESMExports()
+    await run({ put, manifests, reads, root })
+  } finally {
+    fs.readFile = originalRead; syncBuiltinESMExports()
+    // root is the exact directory returned by mkdtemp above, owned by this fixture.
+    await fs.rm(root, { recursive: true, force: true })
+  }
+}
+
+test('report environment collects enabled host entries and bundles using exact Loader anchors', async () => {
+  await withInventoryManifests(async ({ put, reads }) => {
+    const plugin = await put('@fixture/plugin', '1.2.3')
+    const otherVersion = await put('@fixture/plugin', '2.0.0', '-other')
+    const core = await put('@deepseek-ai/core', '0.2.2-rc.2')
+    const baseA = pathToFileURL(join(tmpdir(), 'tree-a.yml')).href
+    const baseB = pathToFileURL(join(tmpdir(), 'tree-b.yml')).href
+    const entries = [
+      { options: { name: '@fixture/plugin/client' }, disabled: false, parent: { tree: { ctx: { baseUrl: baseA } } }, fiber: { state: 'failed' } },
+      { options: { name: '@fixture/plugin/tools' }, disabled: false, parent: { tree: { ctx: { baseUrl: baseA } } } },
+      { options: { name: '@fixture/plugin' }, disabled: false, parent: { tree: { ctx: { baseUrl: baseB } } } },
+      { options: { name: '@deepseek-ai/core' }, disabled: false, parent: { tree: { ctx: { baseUrl: baseA } } } },
+      { options: { name: 'official-addon/runtime' }, disabled: false, parent: { tree: { ctx: { baseUrl: baseA } } } },
+      { options: { name: 'disabled-secret' }, disabled: true },
+      { options: { name: 'group-secret', group: true }, disabled: false },
+    ]
+    const resolutions = []
+    const h = harness({}, { services: {
+      loader: { entries: () => entries },
+      pluginPackages: { packageOf (name, anchor) { resolutions.push([name, anchor]); return { manifestPath: name === '@deepseek-ai/core' ? core : anchor === baseB ? otherVersion : plugin } } },
+      pluginManager: { listBundles: async () => [
+        { name: '@deepseek-ai/dsh-base', version: '0.2.2-rc.2', enabled: true, availability: 'installation', official: false, rows: [{ moduleName: '@deepseek-ai/core' }] },
+        { name: 'official-addon', version: '1.0.0', enabled: true, availability: 'profile', official: true, rows: [{ moduleName: 'official-addon/runtime' }] },
+        { name: '@deepseek-ai/third-party-fixture', version: '7.0.0', enabled: true, availability: 'profile', official: false },
+        { name: '@fixture/plugin', version: '1.2.3', enabled: true, source: 'DO_NOT_EXPORT_SOURCE' },
+        { name: '@fixture/config-preset', version: '3.4.5', enabled: true, rows: [] },
+        { name: 'disabled-bundle', version: '9', enabled: false },
+      ] },
+    } })
+    try {
+      const response = await reportEnvironment(h)
+      assert.equal(response.status, 200)
+      const body = await response.json()
+      assert.equal(body.runtime.pluginsStatus, 'complete')
+      assert.deepEqual(body.runtime.enabledPlugins, [
+        { name: '@deepseek-ai/third-party-fixture', version: '7.0.0' },
+        { name: '@fixture/config-preset', version: '3.4.5' },
+        { name: '@fixture/plugin', version: '1.2.3' },
+        { name: '@fixture/plugin', version: '2.0.0' },
+      ])
+      assert.ok(resolutions.some(([name, anchor]) => name === '@fixture/plugin' && anchor === baseB))
+      assert.equal(reads.get(plugin), 1, 'one manifest read per package path within this request')
+      assert.doesNotMatch(JSON.stringify(body), /DO_NOT_EXPORT|tree-a|tree-b|disabled-|group-secret|manifestPath|"config":|"source":/)
+      assert.ok(body.runtime.enabledPlugins.every((entry) => Object.keys(entry).sort().join(',') === 'name,version'))
+    } finally { await disposeHarness(h) }
+  })
+})
+
+test('report environment excludes native repository packages without relying on package-name prefix', async () => {
+  await withInventoryManifests(async ({ put }) => {
+    const native = await put('native-unscoped-plugin', '0.2.2-rc.2')
+    await fs.writeFile(native, JSON.stringify({ name: 'native-unscoped-plugin', version: '0.2.2-rc.2', repository: { url: 'git+https://github.com/deepseek-ai/deepseek-harness.git' } }))
+    const thirdParty = await put('@deepseek-ai/not-shipped-fixture', '9.0.0')
+    const h = harness({}, { services: {
+      loader: { entries: () => [native, thirdParty].map((path, index) => ({ disabled: false, options: { name: index ? '@deepseek-ai/not-shipped-fixture' : 'native-unscoped-plugin' } })) },
+      pluginPackages: { packageOf: (name) => ({ manifestPath: name === 'native-unscoped-plugin' ? native : thirdParty }) },
+      pluginManager: { listBundles: async () => [{ name: 'native-unscoped-plugin', version: '0.2.2-rc.2', enabled: true, availability: 'profile', official: false }] },
+      agentPresets: {
+        inspectCompositions: () => [],
+        compositionInventory: async () => [{ id: 'fixture', rows: [
+          { moduleName: 'native-unscoped-plugin', enabled: true },
+          { moduleName: 'native-unscoped-plugin', enabled: 'conditional' },
+          { moduleName: 'cordis:group', enabled: true },
+          { moduleName: 'not-enabled-conditional', enabled: 'conditional' },
+        ] }],
+      },
+    } })
+    try {
+      const body = await (await reportEnvironment(h)).json()
+      assert.deepEqual(body.runtime.enabledPlugins, [{ name: '@deepseek-ai/not-shipped-fixture', version: '9.0.0' }])
+      assert.equal(body.runtime.pluginsStatus, 'complete')
+    } finally { await disposeHarness(h) }
+  })
+})
+
+test('report environment recollects every request and rereads versions rather than caching the old roster', async () => {
+  await withInventoryManifests(async ({ put }) => {
+    const path = await put('fixture-changing', '1.0.0')
+    let plugins = [{ moduleName: 'fixture-changing/client', enabled: true, fiberPhase: 'failed', config: 'DO_NOT_EXPORT' }]
+    let bundles = [{ name: 'fixture-changing', version: '1.0.0', enabled: true }]
+    let pluginCalls = 0
+    let bundleCalls = 0
+    const h = harness({}, { services: {
+      pluginPackages: { packageOf: () => ({ manifestPath: path }) },
+      pluginManager: { listPlugins: async () => { pluginCalls++; return plugins }, listBundles: async () => { bundleCalls++; return bundles } },
+    } })
+    try {
+      const first = await (await reportEnvironment(h)).json()
+      assert.deepEqual(first.runtime.enabledPlugins, [{ name: 'fixture-changing', version: '1.0.0' }])
+      await fs.writeFile(path, JSON.stringify({ name: 'fixture-changing', version: '1.1.0' }))
+      bundles = [{ name: 'fixture-changing', version: '1.1.0', enabled: true }]
+      const second = await (await reportEnvironment(h)).json()
+      assert.deepEqual(second.runtime.enabledPlugins, [{ name: 'fixture-changing', version: '1.1.0' }])
+      plugins = [{ moduleName: 'fixture-changing', enabled: false }]
+      bundles = []
+      const third = await (await reportEnvironment(h)).json()
+      assert.deepEqual(third.runtime.enabledPlugins, [])
+      assert.equal(third.runtime.pluginsStatus, 'complete')
+      assert.equal(pluginCalls, 3)
+      assert.equal(bundleCalls, 3)
+    } finally { await disposeHarness(h) }
+  })
+})
+
+test('report environment keeps large lists complete and marks missing or invalid versions honestly', async () => {
+  await withInventoryManifests(async ({ put }) => {
+    const missingVersion = await put('fixture-no-version', undefined)
+    const h = harness({}, { services: {
+      pluginPackages: { packageOf (name) { return name === 'fixture-no-version' ? { manifestPath: missingVersion } : undefined } },
+      pluginManager: { listPlugins: async () => [
+        { moduleName: 'fixture-no-version/subpath', enabled: true }, { moduleName: 'fixture-unresolved', enabled: true },
+      ], listBundles: async () => [
+        ...Array.from({ length: 137 }, (_, index) => ({ name: 'fixture-bundle-' + index, version: '1.0.0', enabled: true })),
+        { name: 'fixture-bad-version', version: 'D:\\PRIVATE\\token=secret', enabled: true },
+      ] },
+    } })
+    try {
+      const body = await (await reportEnvironment(h)).json()
+      assert.equal(body.runtime.enabledPlugins.length, 140)
+      assert.equal(body.runtime.pluginsStatus, 'partial')
+      for (const name of ['fixture-no-version', 'fixture-unresolved', 'fixture-bad-version']) {
+        assert.deepEqual(body.runtime.enabledPlugins.find((entry) => entry.name === name), { name, version: null })
+      }
+      assert.doesNotMatch(JSON.stringify(body), /PRIVATE|token=|manifestPath/)
+    } finally { await disposeHarness(h) }
+  })
+})
+
+test('report environment reports unavailable or partial service inventories without leaking errors', async () => {
+  for (const [services, expectedStatus, expectedNames] of [
+    [{}, 'unavailable', []],
+    [{ pluginManager: { listPlugins: async () => { throw Error('PRIVATE_PATH_AND_TOKEN') }, listBundles: async () => [{ name: 'fixture-config', version: '1', enabled: true }] } }, 'partial', ['fixture-config']],
+    [{ loader: { entries: () => { throw Error('PRIVATE_PATH_AND_TOKEN') } } }, 'unavailable', []],
+  ]) {
+    const h = harness({}, { services })
+    try {
+      const body = await (await reportEnvironment(h)).json()
+      assert.equal(body.runtime.pluginsStatus, expectedStatus)
+      assert.deepEqual(body.runtime.enabledPlugins.map((entry) => entry.name), expectedNames)
+      assert.doesNotMatch(JSON.stringify(body), /PRIVATE_PATH_AND_TOKEN/)
+    } finally { await disposeHarness(h) }
+  }
+})
+
+test('report environment includes preset composition packages without exporting preset internals', async () => {
+  await withInventoryManifests(async ({ put }) => {
+    const path = await put('fixture-preset-tool', '4.5.6')
+    const anchor = pathToFileURL(join(tmpdir(), 'private-preset.yml')).href
+    const h = harness({}, { services: {
+      loader: { entries: () => [] },
+      pluginManager: { listBundles: async () => [] },
+      pluginPackages: { packageOf (name, base) { assert.equal(name, 'fixture-preset-tool'); assert.equal(base, anchor); return { manifestPath: path } } },
+      agentPresets: {
+        inspectCompositions: () => [{ id: 'private-preset-id', modules: [{ moduleName: 'fixture-preset-tool/tools', baseUrl: anchor, useHostBase: false }], leakedServices: ['DO_NOT_EXPORT'] }],
+        compositionInventory: async () => [{ id: 'private-preset-id', rows: [
+          { moduleName: 'fixture-preset-tool/tools', enabled: true },
+          { moduleName: 'fixture-failed-preset-entry', enabled: true, fiberState: 'failed' },
+          { moduleName: 'fixture-disabled-preset-entry', enabled: false },
+          { moduleName: 'fixture-conditional-preset-entry', enabled: 'conditional', condition: 'PRIVATE_CONDITION' },
+        ] }],
+      },
+    } })
+    try {
+      const body = await (await reportEnvironment(h)).json()
+      assert.equal(body.runtime.pluginsStatus, 'partial')
+      assert.deepEqual(body.runtime.enabledPlugins, [{ name: 'fixture-failed-preset-entry', version: null }, { name: 'fixture-preset-tool', version: '4.5.6' }])
+      assert.doesNotMatch(JSON.stringify(body), /private-preset|DO_NOT_EXPORT|PRIVATE_CONDITION|disabled-preset|conditional-preset|baseUrl/)
+    } finally { await disposeHarness(h) }
+  })
+})
+
+test('report environment requires authenticated owner before collecting inventory and honors cancellation', async () => {
+  for (const [admission, status] of [[{ rejection: 401 }, 401], [{ peer: { principal: { kind: 'guest' } } }, 403]]) {
+    let reads = 0
+    const h = harness({}, { admission, services: { pluginManager: { listPlugins () { reads++; return [] }, listBundles () { reads++; return [] } } } })
+    try {
+      const response = await reportEnvironment(h)
+      assert.equal(response.status, status)
+      assert.equal(reads, 0)
+    } finally { await disposeHarness(h) }
+  }
+  const controller = new AbortController()
+  const h = harness({}, { services: { pluginManager: { listBundles: async () => { controller.abort(); return [] }, listPlugins: async () => { assert.fail('must stop after cancellation') } } } })
+  try { assert.equal((await reportEnvironment(h, controller.signal)).status, 499) } finally { await disposeHarness(h) }
 })
 
 test('diagnostic routes share cached versions from the actual launch and plugin manifests', async () => {
@@ -505,9 +722,9 @@ function runtimeHarness (h, adapter, middleware = []) {
 }
 
 async function collect (stream) { const chunks = []; for await (const chunk of stream) chunks.push(chunk); return chunks }
-async function compactionRecords (h) {
+async function compactionRecords (h, sessionId = 'session-1') {
   const route = h.routes.find((entry) => entry.path === '/api/better-tips/compaction')
-  return (await route.fetch(new Request('http://localhost/api/better-tips/compaction?sessionId=session-1'))).json()
+  return (await route.fetch(new Request(`http://localhost/api/better-tips/compaction?sessionId=${encodeURIComponent(sessionId)}`))).json()
 }
 
 test('compaction retries re-dispatch every attempt through two downstream middleware layers', async () => {
@@ -527,6 +744,8 @@ test('compaction retries re-dispatch every attempt through two downstream middle
   assert.equal(record.attempts.length, 2)
   assert.equal(record.delays.length, 1)
   assert.equal(record.attempts[0].failure.code, 'SERVER')
+  assert.equal(record.attempts[0].finishReason, 'error')
+  assert.equal(record.attempts[1].finishReason, 'stop')
   assert.equal(record.attempts[0].failure.status, 502)
   assert.ok(Number.isFinite(record.durationMs))
   await disposeHarness(h)
@@ -656,6 +875,137 @@ test('compaction capture is bound at failure and cannot change after unrelated l
     assert.equal(after.detail.host, before.detail.host)
     assert.equal(after.attemptId, before.attemptId)
   } finally { await disposeHarness(h); globalThis.fetch = originalFetch }
+})
+
+test('compaction HTTP and network failures retain scoped capture when iterator throws the original error', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    for (const kind of ['response', 'network']) {
+      const networkError = Object.assign(new Error('synthetic socket failed'), { code: 'ECONNRESET' })
+      const thrown = kind === 'network' ? networkError : Object.assign(new Error('adapter failed after HTTP response'), { code: 'STREAM_CLOSED' })
+      globalThis.fetch = async () => {
+        if (kind === 'network') throw networkError
+        return new Response('synthetic upstream body', { status: 502, headers: { 'x-request-id': 'throw-http-request' } })
+      }
+      const h = harness({ captureDetails: true, compactionRetries: 3, initialDelayMs: 0 })
+      try {
+        const { runtime, stats } = runtimeHarness(h, () => (async function * () {
+          const response = await fetch(`https://${kind}.example/v1/chat`)
+          await response.text()
+          throw thrown
+        })())
+        await assert.rejects(collect(runtime.stream({ ...COMPACTION_OPTIONS })), error => error === thrown)
+        const body = await compactionRecords(h)
+        const record = body.records[0]
+        const attempt = record.attempts[0]
+        assert.equal(record.status, 'thrown')
+        assert.equal(record.attempts.length, 1)
+        assert.equal(stats.adapterCalls, 1, 'throw handling does not introduce retries')
+        assert.equal(body.capture.records, 1)
+        assert.equal(attempt.provenance, 'request-context')
+        assert.ok(attempt.attemptId)
+        assert.equal(attempt.detail.context.attemptId, attempt.attemptId)
+        assert.equal(attempt.detail.context.sessionId, COMPACTION_OPTIONS.sessionId)
+        assert.equal(attempt.detail.host, `${kind}.example`)
+        assert.equal(attempt.thrown.message, thrown.message)
+        if (kind === 'response') {
+          assert.equal(attempt.detail.status, 502)
+          assert.equal(attempt.detail.headers['x-request-id'], 'throw-http-request')
+        } else assert.equal(attempt.detail.error.code, 'ECONNRESET')
+      } finally { await disposeHarness(h) }
+    }
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('synchronous compaction dispatch throws retain identity without borrowing an earlier capture', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => new Response('old capture', { status: 502 })
+  const h = harness({ captureDetails: true, compactionRetries: 3 })
+  try {
+    await fetch('https://unrelated.example/v1/chat')
+    const thrown = new Error('synchronous adapter refused dispatch')
+    const { runtime, stats } = runtimeHarness(h, () => { throw thrown })
+    await assert.rejects(collect(runtime.stream({ ...COMPACTION_OPTIONS })), error => error === thrown)
+    const body = await compactionRecords(h)
+    const attempt = body.records[0].attempts[0]
+    assert.equal(stats.adapterCalls, 1)
+    assert.equal(body.capture.records, 1)
+    assert.equal(body.records[0].status, 'thrown')
+    assert.ok(attempt.attemptId, 'identity is assigned before the dispatch can throw')
+    assert.equal(attempt.provenance, 'request-context')
+    assert.equal(attempt.detail, undefined)
+    assert.equal(attempt.finishReason, undefined)
+    assert.equal(attempt.thrown.message, thrown.message)
+  } finally { await disposeHarness(h); globalThis.fetch = originalFetch }
+})
+
+test('concurrent thrown compactions keep evidence inside their own session and attempt', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (url) => new Response(String(url), { status: 502 })
+  const h = harness({ captureDetails: true, compactionRetries: 0 })
+  try {
+    const waiting = new Map()
+    const errors = { 'session-A': new Error('throw A'), 'session-B': new Error('throw B') }
+    const { runtime } = runtimeHarness(h, (options) => (async function * () {
+      await fetch(`https://${options.sessionId.toLowerCase()}.example/v1/chat`)
+      await new Promise(resolve => waiting.set(options.sessionId, resolve))
+      throw errors[options.sessionId]
+    })())
+    const rejected = Object.fromEntries(Object.keys(errors).map(sessionId => [sessionId,
+      assert.rejects(collect(runtime.stream({ ...COMPACTION_OPTIONS, sessionId })), error => error === errors[sessionId])]))
+    for (let pass = 0; pass < 50 && waiting.size < 2; pass++) await new Promise(resolve => setImmediate(resolve))
+    assert.equal(waiting.size, 2)
+    waiting.get('session-B')()
+    await rejected['session-B']
+    waiting.get('session-A')()
+    await rejected['session-A']
+    const a = (await compactionRecords(h, 'session-A')).records[0].attempts[0]
+    const b = (await compactionRecords(h, 'session-B')).records[0].attempts[0]
+    assert.notEqual(a.attemptId, b.attemptId)
+    for (const [attempt, sessionId] of [[a, 'session-A'], [b, 'session-B']]) {
+      assert.equal(attempt.detail.context.sessionId, sessionId)
+      assert.equal(attempt.detail.context.attemptId, attempt.attemptId)
+      assert.equal(attempt.detail.host, `${sessionId.toLowerCase()}.example`)
+    }
+  } finally { await disposeHarness(h); globalThis.fetch = originalFetch }
+})
+
+test('caller cancellation during compaction preserves original thrown identity and starts no retry', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => new Response('failed before cancellation', { status: 502 })
+  const h = harness({ captureDetails: true, compactionRetries: 3 })
+  const caller = new AbortController()
+  const abort = Object.assign(new Error('caller cancelled inside adapter'), { code: 'ABORTED' })
+  try {
+    const { runtime, stats } = runtimeHarness(h, () => (async function * () {
+      await fetch('https://cancelled.example/v1/chat')
+      caller.abort(abort)
+      throw abort
+    })())
+    await assert.rejects(collect(runtime.stream({ ...COMPACTION_OPTIONS, signal: caller.signal })), error => error === abort)
+    const record = (await compactionRecords(h)).records[0]
+    assert.equal(record.status, 'aborted')
+    assert.equal(record.attempts[0].thrown.code, 'ABORTED')
+    assert.equal(record.attempts[0].detail.host, 'cancelled.example')
+    assert.equal(stats.adapterCalls, 1)
+  } finally { await disposeHarness(h); globalThis.fetch = originalFetch }
+})
+
+test('compaction terminal finish kind is exposed and max-tokens is never recorded as ok', async () => {
+  const h = harness({ compactionRetries: 3 })
+  try {
+    for (const [kind, expected] of [['stop', 'ok'], ['tool-calls', 'ok'], ['max-tokens', 'max-tokens'], ['aborted', 'aborted'], ['unexpected-kind', 'incomplete']]) {
+      const chunks = [{ type: 'finish', reason: { kind } }]
+      const { runtime, stats } = runtimeHarness(h, () => streamOf(chunks))
+      assert.deepEqual(await collect(runtime.stream({ ...COMPACTION_OPTIONS })), chunks)
+      const record = (await compactionRecords(h)).records.at(-1)
+      assert.equal(record.status, expected, kind)
+      assert.equal(record.attempts[0].finishReason, kind)
+      assert.ok(record.attempts[0].attemptId)
+      assert.equal(record.attempts[0].detail, undefined)
+      assert.equal(stats.adapterCalls, 1, 'terminal-state recording does not change retry policy')
+    }
+  } finally { await disposeHarness(h) }
 })
 
 test('successful compaction attempts never inherit a neighboring failure capture', async () => {
@@ -850,6 +1200,70 @@ test('AUTH compaction route suppresses credential echoes in both failure and cor
     assert.equal(attempt.detail.headers['x-request-id'], 'compaction-request-1')
     assert.equal(attempt.detail.context.attemptId, attempt.attemptId)
     assert.equal(attempt.provenance, 'request-context')
+  } finally { await disposeHarness(h); globalThis.fetch = originalFetch }
+})
+
+test('AUTH thrown compactions protect arbitrary text and body through cause and aggregate errors', async () => {
+  const originalFetch = globalThis.fetch
+  const unrecognized = 'arbitraryVendorCredentialWithoutKnownShape'
+  try {
+    for (const wrapped of ['direct', 'cause', 'aggregate']) {
+      globalThis.fetch = async () => new Response(`${unrecognized} ${PRIVATE_KEY} ${PRIVATE_BEARER}`, {
+        status: 401, statusText: unrecognized, headers: { 'x-request-id': 'auth-throw-request', 'cf-ray': PRIVATE_KEY },
+      })
+      const auth = Object.assign(new Error(unrecognized), { code: 'AUTH', errno: unrecognized })
+      const thrown = wrapped === 'cause' ? Object.assign(new Error(unrecognized), { code: 'WRAPPER', cause: auth })
+        : wrapped === 'aggregate' ? new AggregateError([new Error('unrelated'), new AggregateError([auth], unrecognized)], unrecognized) : auth
+      if (wrapped === 'aggregate') thrown.errors.unshift(thrown)
+      const h = harness({ captureDetails: true, compactionRetries: 0 })
+      try {
+        const { runtime } = runtimeHarness(h, () => (async function * () {
+          await (await fetch('https://auth-throw.example/v1/chat')).text()
+          throw thrown
+        })())
+        await assert.rejects(collect(runtime.stream({ ...COMPACTION_OPTIONS })), error => error === thrown)
+        const body = await compactionRecords(h)
+        assertNoCredential(body)
+        assert.equal(JSON.stringify(body).includes(unrecognized), false)
+        const attempt = body.records[0].attempts[0]
+        assert.deepEqual(attempt.thrown, { code: 'AUTH', message: '', protected: true })
+        assert.ok(attempt.attemptId)
+        assert.equal(attempt.detail.context.attemptId, attempt.attemptId)
+        assert.equal(attempt.detail.status, 401)
+        assert.equal(attempt.detail.headers['x-request-id'], 'auth-throw-request')
+        assert.equal(attempt.detail.statusText, undefined)
+        assert.equal(attempt.detail.body, undefined)
+        assert.equal(attempt.detail.error, undefined)
+        assert.equal(attempt.detail.bodyReason, 'credential-protection')
+        assert.equal(attempt.detail.protected, true)
+        assert.equal(thrown.message, unrecognized, 'original thrown value is untouched')
+      } finally { await disposeHarness(h) }
+    }
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('thrown compaction network detail redacts nested credentials without changing the source error', async () => {
+  const originalFetch = globalThis.fetch
+  const thrown = Object.assign(new Error(`network ${PRIVATE_KEY}`), {
+    code: 'ECONNRESET', errno: PRIVATE_KEY, syscall: PRIVATE_BEARER, address: PRIVATE_KEY,
+    cause: Object.assign(new Error(PRIVATE_BEARER), { code: `ERR_${PRIVATE_KEY}` }),
+  })
+  globalThis.fetch = async () => { throw thrown }
+  const h = harness({ captureDetails: true, compactionRetries: 0 })
+  try {
+    const { runtime } = runtimeHarness(h, () => (async function * () { await fetch('https://nested-throw.example/v1/chat') })())
+    await assert.rejects(collect(runtime.stream({ ...COMPACTION_OPTIONS })), error => error === thrown)
+    const body = await compactionRecords(h)
+    assertNoCredential(body)
+    const attempt = body.records[0].attempts[0]
+    assert.equal(attempt.detail.error.errno, 'sk-[redacted]')
+    assert.equal(attempt.detail.error.syscall, 'Bearer [redacted]')
+    assert.equal(attempt.detail.error.address, 'sk-[redacted]')
+    assert.equal(attempt.detail.error.cause.message, 'Bearer [redacted]')
+    assert.equal(attempt.detail.error.cause.code, 'ERR_sk-[redacted]')
+    assert.equal(attempt.thrown.errno, 'sk-[redacted]')
+    assert.equal(thrown.errno, PRIVATE_KEY)
+    assert.equal(thrown.cause.message, PRIVATE_BEARER)
   } finally { await disposeHarness(h); globalThis.fetch = originalFetch }
 })
 

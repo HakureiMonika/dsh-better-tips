@@ -10,32 +10,36 @@ window.__ModuleLoader__.load({
     const zh = {
       'ui.authProtected': '认证错误正文已隐藏，避免回显凭据。请核对密钥、接口地址和模型权限。',
       'ui.authBodyProtected': '认证响应正文已受保护；仅保留安全的状态与请求标识。',
-      'ui.details': '诊断详情', 'ui.bottom': '底层', 'ui.unconfirmed': '关联未确认',
+      'ui.details': '底层原始详情', 'ui.bottom': '底层', 'ui.unconfirmed': '关联未确认',
       'ui.candidates': '候选捕获 · {count}', 'ui.loading': '加载中',
       'ui.empty': '未取得额外网络诊断', 'ui.disabled': '额外网络诊断已关闭', 'ui.captureUnavailable': '额外网络诊断不可用', 'ui.loadFailed': '详情读取失败 · {message}',
       'ui.refresh': '重新读取', 'ui.bodyPending': '响应正文读取中', 'ui.bodyEmpty': '响应正文为空',
       'ui.bodyTruncated': '响应正文已截断', 'ui.bodyUnreadable': '响应正文读取失败',
-      'ui.copyError': '复制完整错误', 'ui.copyCoordinate': '复制日志坐标', 'ui.copyPath': '复制路径',
+      'ui.copyCapture': '复制截获错误', 'ui.copyError': '复制完整错误', 'ui.copyCoordinate': '复制日志坐标', 'ui.copyPath': '复制路径',
       'ui.copied': '已复制', 'ui.copyFailed': '复制失败，请手动选择文本', 'ui.copying': '复制中',
       'ui.error': '失败', 'ui.stopped': '已停止', 'ui.retry': '重试',
       'ui.retried': '已重试', 'ui.cancelled': '重试取消', 'ui.scheduled': '等待重试',
       'compact.title': '上下文已压缩', 'compact.completed': '{items} 条 · ~{tokens} tokens',
       'compact.running': '压缩中', 'compact.done': '压缩完成',
       'compact.failed': '压缩失败', 'compact.failedAuto': '自动压缩失败',
+      'compact.recordMissing': '本次压缩的具体失败记录尚未加载，当前仅有命令提示。', 'compact.recordFailed': '本次压缩失败记录读取失败。',
+      'compact.errorProtected': '压缩失败；持久化诊断缺少错误类型，正文已隐藏以避免回显凭据。',
       'compact.attempt': '尝试 {index}',
       'ui.expand': '错误详情', 'ui.original': 'DSH 原生报错', 'ui.network': '插件捕获的底层报错',
       'ui.nativeExcerpt': 'DSH 原生报错 · 摘要', 'ui.overviewSource': '插件整理 · 重试概览', 'ui.open': '展开', 'ui.close': '收起',
+      'ui.earlierErrors': '更早的报错 · {count}', 'ui.earlierBlock': '更早的报错',
       'ui.history': '重试记录 · {count}', 'ui.record': '失败记录 {index}',
-      'ui.preview': '摘要 · 完整原文见详情', 'ui.categoryOverview': '类别概览', 'ui.different': '{count} 类错误',
+      'ui.categoryOverview': '类别概览', 'ui.different': '{count} 类错误',
       'ui.attempts': '请求尝试 · {count}', 'ui.logSection': '日志定位',
       'ui.timingMatch': '按时间关联 · 未确认请求身份', 'ui.wait': '计划等待 {ms} ms',
       'ui.historyNote': '按发生顺序；同一重试的等待与开始状态仅记一次。',
-      'report.copy': '复制排障报告', 'report.building': '生成中', 'report.partial': '已复制 · 部分信息缺失',
-      'report.fallback': '复制失败，可选择下方报告文本', 'report.preview': '查看报告文本',
+      'report.copy': '一键复制排障报告', 'report.building': '生成中', 'report.partial': '已复制 · 部分信息缺失',
+      'report.fallback': '复制失败，可选择下方报告文本',
       'report.notice': '分享前检查：报错或响应可能回显输入；仅过滤常见凭据，不保证清除个人信息。',
       'compact.usage': '摘要请求用量（非会话总量）', 'log.contextWarning': '相邻事件可能含会话内容，分享前请检查。',
       'report.responseState': '响应状态',
       'report.intro': '记录于{time}：使用“{provider}”渠道的“{model}”模型时遇到{error}。',
+      'report.plugins': '已启用第三方插件', 'report.pluginsPartial': '部分插件信息未能确认', 'report.pluginsUnavailable': '清单读取失败或不可用', 'report.pluginsNone': '无',
       'report.missing': '未记录', 'report.version': '截止生成本报告时', 'report.native': 'DSH 原生报错', 'report.underlying': '插件捕获的底层报错',
       'report.noEvidence': '未取得唯一匹配的底层证据', 'report.ambiguous': '有多个候选，未混入报告', 'report.readFailed': '读取失败',
       'report.unconfirmed': '同一时间附近捕获到以下报错：', 'report.summaryError': '摘要请求报错',
@@ -47,32 +51,36 @@ window.__ModuleLoader__.load({
     const en = {
       'ui.authProtected': 'Authentication error text is hidden to avoid echoing credentials. Check the key, endpoint and model permissions.',
       'ui.authBodyProtected': 'Authentication response text is protected; only safe status and request identifiers are retained.',
-      'ui.details': 'Diagnostic details', 'ui.bottom': 'Underlying', 'ui.unconfirmed': 'Unconfirmed match',
+      'ui.details': 'Underlying raw details', 'ui.bottom': 'Underlying', 'ui.unconfirmed': 'Unconfirmed match',
       'ui.candidates': 'Candidate captures · {count}', 'ui.loading': 'Loading',
       'ui.empty': 'No additional network diagnosis', 'ui.disabled': 'Additional network diagnosis is disabled', 'ui.captureUnavailable': 'Additional network diagnosis unavailable', 'ui.loadFailed': 'Details unavailable · {message}',
       'ui.refresh': 'Read again', 'ui.bodyPending': 'Reading response body', 'ui.bodyEmpty': 'Response body is empty',
       'ui.bodyTruncated': 'Response body truncated', 'ui.bodyUnreadable': 'Response body read failed',
-      'ui.copyError': 'Copy full error', 'ui.copyCoordinate': 'Copy log coordinates', 'ui.copyPath': 'Copy path',
+      'ui.copyCapture': 'Copy captured error', 'ui.copyError': 'Copy full error', 'ui.copyCoordinate': 'Copy log coordinates', 'ui.copyPath': 'Copy path',
       'ui.copied': 'Copied', 'ui.copyFailed': 'Copy failed; select the text manually', 'ui.copying': 'Copying',
       'ui.error': 'Failed', 'ui.stopped': 'Stopped', 'ui.retry': 'Retrying',
       'ui.retried': 'Retried', 'ui.cancelled': 'Retry cancelled', 'ui.scheduled': 'Retry scheduled',
       'compact.title': 'Context compacted', 'compact.completed': '{items} items · ~{tokens} tokens',
       'compact.running': 'Compacting', 'compact.done': 'Compaction complete',
       'compact.failed': 'Compaction failed', 'compact.failedAuto': 'Automatic compaction failed',
+      'compact.recordMissing': 'The specific failure record for this compaction is not loaded; only the command notice is available.', 'compact.recordFailed': 'Could not read this compaction failure record.',
+      'compact.errorProtected': 'Compaction failed; durable diagnosis has no error type, so its text is withheld to avoid credential echoes.',
       'compact.attempt': 'Attempt {index}',
       'ui.expand': 'Error details', 'ui.original': 'DSH native error', 'ui.network': 'Plugin-captured underlying error',
       'ui.nativeExcerpt': 'DSH native error · excerpt', 'ui.overviewSource': 'Plugin summary · retries', 'ui.open': 'Expand', 'ui.close': 'Collapse',
+      'ui.earlierErrors': 'Earlier errors · {count}', 'ui.earlierBlock': 'Earlier error',
       'ui.history': 'Retry history · {count}', 'ui.record': 'Failure record {index}',
-      'ui.preview': 'Excerpt · full original in details', 'ui.categoryOverview': 'Category overview', 'ui.different': '{count} error categories',
+      'ui.categoryOverview': 'Category overview', 'ui.different': '{count} error categories',
       'ui.attempts': 'Request attempts · {count}', 'ui.logSection': 'Log location',
       'ui.timingMatch': 'Time correlation · request identity unconfirmed', 'ui.wait': 'planned wait {ms} ms',
       'ui.historyNote': 'Chronological; scheduled and started states of one retry count once.',
       'report.copy': 'Copy troubleshooting report', 'report.building': 'Preparing', 'report.partial': 'Copied · some information missing',
-      'report.fallback': 'Copy failed; select the report below', 'report.preview': 'View report text',
+      'report.fallback': 'Copy failed; select the report below',
       'report.notice': 'Review before sharing: errors/responses may echo input. Common credential filtering is not personal-data removal.',
       'compact.usage': 'Summary request usage (not session total)', 'log.contextWarning': 'Nearby events may contain conversation content. Review before sharing.',
       'report.responseState': 'Response state',
       'report.intro': 'At {time}, model “{model}” via provider “{provider}” returned {error}.',
+      'report.plugins': 'Enabled third-party plugins', 'report.pluginsPartial': 'Some plugin information could not be verified', 'report.pluginsUnavailable': 'Inventory unavailable or read failed', 'report.pluginsNone': 'none',
       'report.missing': 'not recorded', 'report.version': 'As of this report', 'report.native': 'DSH native error', 'report.underlying': 'Plugin-captured underlying error',
       'report.noEvidence': 'No uniquely matched underlying evidence', 'report.ambiguous': 'Multiple candidates omitted', 'report.readFailed': 'Read failed',
       'report.unconfirmed': 'The following was captured around the same time:', 'report.summaryError': 'Summary request error',
@@ -193,13 +201,13 @@ window.__ModuleLoader__.load({
       '.bt_error[open]>summary:before,.bt_compact[open]>summary:before{content:"⌄"}',
       '.bt_title{flex:none;color:var(--dsw-alias-label-secondary)}',
       '.bt_error .bt_primary{color:var(--dsw-alias-state-error-primary)}',
-      '.bt_primary{font:inherit;font-family:ui-monospace,monospace;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}',
+      '.bt_primary{color:var(--dsw-alias-state-error-primary);font:inherit;font-family:ui-monospace,monospace;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}',
       '.bt_logOpen{flex:1 1 100%;min-width:0}',
       '.bt_actions{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;min-width:0}',
-      '.bt_action,.bt_logButton{border:0;border-radius:4px;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;min-height:28px;padding:3px 6px;cursor:pointer;text-decoration:none}',
-      '.bt_action:hover,.bt_logButton:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
+      '.bt_action,.bt_logButton{display:inline-flex;align-items:center;justify-content:center;gap:4px;border:1px solid var(--dsw-alias-border-l1);border-radius:3px;background:transparent;color:var(--dsw-alias-label-primary);font:400 12px/1.4 system-ui,sans-serif;min-height:24px;padding:2px 7px;cursor:pointer;text-decoration:none;width:fit-content}',
+      '.bt_action:hover,.bt_logButton:hover{border-color:var(--dsw-alias-state-error-primary);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}',
       '.bt_action:disabled,.bt_logButton:disabled{cursor:not-allowed;opacity:.55;text-decoration:none}',
-      '.bt_action:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}',
+      '.bt_action:focus-visible{outline:2px solid var(--dsw-alias-state-error-primary);outline-offset:2px}',
       '.bt_flag{flex:none;font-size:11px;color:var(--dsw-alias-label-secondary)}',
       '.bt_body{margin:4px 0 6px 14px;display:grid;gap:6px;min-width:0}',
       '.bt_body>.bt_refresh{justify-self:start}',
@@ -208,27 +216,33 @@ window.__ModuleLoader__.load({
       'border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-sm);user-select:text}',
       '.bt_meta{color:var(--dsw-alias-label-secondary);font-size:12px;overflow-wrap:anywhere}',
       '.bt_capture{display:grid;gap:3px;min-width:0}',
-      '.bt_advice,.bt_captureAdvice{display:flex;align-items:baseline;gap:8px;color:var(--dsw-alias-label-secondary);font-size:12px;overflow-wrap:anywhere}',
-      '.bt_logButton:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}',
+      '.bt_advice,.bt_captureAdvice{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;padding:2px 0;color:var(--dsw-alias-label-primary);font-size:12px;overflow-wrap:anywhere}.bt_advice>.bt_title,.bt_captureAdvice>.bt_title{font-weight:600;color:var(--dsw-alias-state-error-primary)}',
+      '.bt_logButton:focus-visible{outline:2px solid var(--dsw-alias-state-error-primary);outline-offset:2px}',
       '.bt_logPanel{margin:6px 0;padding:8px;border:1px solid var(--dsw-alias-border-l1);border-radius:6px;min-width:0}',
       '.bt_logTarget{border-left:3px solid var(--dsw-alias-state-error-primary);padding-left:8px;min-width:0}',
       '.bt_logHeading{font-size:12px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere}',
       '.bt_advice{grid-column:1/-1;margin:1px 0 2px;min-width:0}',
       '.bt_compact{color:var(--dsw-alias-label-secondary)}',
-      '.bt_error>summary:focus-visible,.bt_compact>summary:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}',
+      '.bt_error>summary:focus-visible,.bt_compact>summary:focus-visible{outline:2px solid var(--dsw-alias-state-error-primary);outline-offset:2px}',
       '.bt_detailBody{margin:4px 0 8px 10px;gap:10px}.bt_section{min-width:0;border-top:1px solid var(--dsw-alias-border-l1);padding-top:7px}.bt_heading{margin:0 0 4px;font:inherit;font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary)}',
-      '.bt_section>summary,.bt_attempt>summary{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;min-height:28px;cursor:pointer}.bt_section>summary:focus-visible,.bt_attempt>summary:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}.bt_attempt{min-width:0;margin:4px 0;padding-left:10px;border-left:1px solid var(--dsw-alias-border-l1)}.bt_attempt>div{display:grid;gap:5px;padding:6px 0}.bt_attemptPreview{color:var(--dsw-alias-state-error-primary);overflow-wrap:anywhere}',
-      '.bt_attempt>summary,.bt_network>summary{list-style:none}.bt_attempt>summary::-webkit-details-marker,.bt_network>summary::-webkit-details-marker{display:none}.bt_attempt>summary:before,.bt_network>summary:before{content:"›";flex:none;color:var(--dsw-alias-label-secondary)}.bt_attempt[open]>summary:before,.bt_network[open]>summary:before{content:"⌄"}.bt_attemptPreview{font:inherit;font-family:ui-monospace,monospace}.bt_original{max-height:340px;overflow:auto}.bt_network>summary{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;min-height:28px;cursor:pointer}.bt_network>summary:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}',
-      '.bt_reportText>summary{cursor:pointer;min-height:28px;font-size:12px;color:var(--dsw-alias-label-secondary)}.bt_reportText>summary:focus-visible,.bt_reportText pre:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}',
+      '.bt_section>summary,.bt_attempt>summary{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;min-height:28px;cursor:pointer}.bt_section>summary:focus-visible,.bt_attempt>summary:focus-visible{outline:2px solid var(--dsw-alias-state-error-primary);outline-offset:2px}.bt_attempt{min-width:0;margin:4px 0;padding-left:10px;border-left:1px solid var(--dsw-alias-border-l1)}.bt_attempt>div{display:grid;gap:5px;padding:6px 0}.bt_attemptPreview{color:var(--dsw-alias-state-error-primary);overflow-wrap:anywhere}',
+      '.bt_attempt>summary,.bt_network>summary{list-style:none}.bt_attempt>summary::-webkit-details-marker,.bt_network>summary::-webkit-details-marker{display:none}.bt_attempt>summary:before,.bt_network>summary:before{content:"›";flex:none;color:var(--dsw-alias-label-secondary)}.bt_attempt[open]>summary:before,.bt_network[open]>summary:before{content:"⌄"}.bt_attemptPreview{font:inherit;font-family:ui-monospace,monospace}.bt_original{max-height:340px;overflow:auto}.bt_network>summary{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;min-height:28px;cursor:pointer}.bt_network>summary:focus-visible{outline:2px solid var(--dsw-alias-state-error-primary);outline-offset:2px}',
+      '.bt_reportText>summary{cursor:pointer;min-height:28px;font-size:12px;color:var(--dsw-alias-label-secondary)}.bt_reportText>summary:focus-visible,.bt_reportText pre:focus-visible{outline:2px solid var(--dsw-alias-state-error-primary);outline-offset:2px}',
       '.bt_source{font:600 12px/1.6 system-ui,sans-serif;color:var(--dsw-alias-label-primary)}',
       '.bt_errorGroup details{min-width:0}.bt_errorGroup details>summary,.bt_compact>summary{display:flex;align-items:center;flex-wrap:wrap;gap:5px 8px;min-height:32px;padding:4px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:5px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);cursor:pointer;list-style:none}',
       '.bt_errorGroup details>summary::-webkit-details-marker{display:none}.bt_errorGroup details>summary:before,.bt_compact>summary:before{content:none}.bt_errorGroup details[open]>summary:before,.bt_compact[open]>summary:before{content:none}',
       '.bt_toggleLabel{display:inline-flex;flex:none;padding:1px 5px;border-radius:3px;background:var(--dsw-alias-bg-layer-1);font:600 12px/1.7 system-ui,sans-serif;color:var(--dsw-alias-label-primary)}.bt_toggleLabel>.bt_whenOpen{display:none}details[open]>summary>.bt_toggleLabel>.bt_whenOpen{display:inline}details[open]>summary>.bt_toggleLabel>.bt_whenClosed{display:none}',
-      '.bt_errorGroup details>summary:hover,.bt_compact>summary:hover{border-color:var(--dsw-alias-state-error-primary)}.bt_errorGroup details>summary:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}',
+      '.bt_errorGroup details>summary:hover,.bt_compact>summary:hover{border-color:var(--dsw-alias-state-error-primary)}.bt_errorGroup details>summary:focus-visible{outline:2px solid var(--dsw-alias-state-error-primary);outline-offset:2px}',
       '.bt_detailBody{margin:0;padding:0}.bt_section{border-top:0;padding-top:4px}.bt_attempt{margin:8px 0;padding:0;border-left:0}',
       '.bt_depth{display:grid;gap:8px;min-width:0;margin:8px 0 8px 10px;padding:4px 0 4px 12px;border-left:2px solid var(--dsw-alias-state-error-primary)}.bt_errorGroup .bt_depth>.bt_body{margin:0;padding:0}.bt_attempt>.bt_depth{padding:4px 0 4px 12px}.bt_logPanel{margin-left:10px;border-left:2px solid var(--dsw-alias-state-error-primary)}',
       '.bt_heading{margin-bottom:5px}.bt_original{font-size:12px}.bt_toggleLabel[hidden]{display:none}',
-      '@media(max-width:640px){.bt_errorGroup{grid-template-columns:minmax(0,1fr);padding-left:9px}.bt_action,.bt_logButton{min-height:32px}}',
+      '.bt_earlierNode{border-left:0;padding-left:0}.bt_earlierNode>.bt_depth,.bt_earlierErrors>.bt_depth,.bt_earlierError>.bt_depth{border-left:0;margin-left:0;padding-left:0}',
+      '.bt_earlierNode>summary{display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none;font-size:12px;color:var(--dsw-alias-label-secondary)}.bt_earlierNode>summary::-webkit-details-marker{display:none}.bt_earlierNode>summary:focus-visible{outline:2px solid var(--dsw-alias-state-error-primary);outline-offset:2px}',
+      '.bt_failureTitle{font-size:17px;font-weight:700;line-height:1.5;color:var(--dsw-alias-state-error-primary)}',
+      '.bt_detailPair{display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:8px;min-width:0}.bt_detailPair>details{margin:0}.bt_detailPair .bt_depth{margin-left:0;padding-left:8px}',
+      '.bt_errorGroup>.bt_network>.bt_body{margin-left:0}.bt_primary{font-size:15px;line-height:1.6}.bt_original{font-size:14px}',
+      '.bt_history{padding-top:0;display:grid;gap:6px}.bt_history>.bt_attempt{margin:0}.bt_history .bt_attempt>.bt_network>.bt_body{margin-left:0}.bt_attempt>.bt_captureAdvice{display:flex;align-items:baseline;gap:4px 8px;padding:2px 0}',
+      '@media(max-width:640px){.bt_errorGroup{grid-template-columns:minmax(0,1fr);padding-left:9px}.bt_detailPair{grid-template-columns:minmax(0,1fr)}}',
     ].join('')
     const text = (value) => value === undefined || value === null ? '' : String(value)
     const rawFailure = (failure) => [failure?.code ? `[${failure.code}]` : '', text(failure?.message)].filter(Boolean).join(' ')
@@ -360,21 +374,51 @@ window.__ModuleLoader__.load({
     function RefreshButton ({ refresh, t }) {
       return refresh ? h('button', { type: 'button', className: 'bt_action bt_refresh', onClick: refresh }, t('ui.refresh')) : null
     }
-    function captureBlock (item, index, t, unconfirmed = false, showFailure = false) {
+    function capturePreview (detail) {
+      const headline = nativeHeadline(detail)
+      let message = ''
+      if (detail?.kind === 'response' && !detail.protected && detail.bodyReason !== 'credential-protection') {
+        message = text(detail.body)
+        if (!detail.bodyState || detail.bodyState === 'complete') {
+          try {
+            const parsed = JSON.parse(message)
+            const providerMessage = parsed?.error?.message ?? parsed?.message
+            if (typeof providerMessage === 'string') message = providerMessage
+          } catch { /* Non-JSON responses stay literal. */ }
+        }
+      }
+      return failurePreview({ message: [headline, message].filter(Boolean).join(' · ') })
+    }
+    function captureDetails (item, t, unconfirmed = false) {
+      return item?.detail ? disclosureBlock({ className: 'bt_networkDetails' },
+        h('summary', { className: 'bt_meta' }, toggleLabel(t), t('ui.details')),
+        unconfirmed ? h('div', { className: 'bt_meta' }, t('ui.unconfirmed')) : null,
+        unconfirmed ? adviceRow(detailCheck(item.detail), t, 'bt_captureAdvice') : null,
+        h('pre', { className: 'bt_raw' }, captureText(item))) : null
+    }
+    function captureBlock (item, index, t, unconfirmed = false, showFailure = false, details = true, inlineCopy = true, captureAdvice = true) {
+      const preview = capturePreview(item?.detail)
       return h('div', { className: 'bt_capture', key: `capture-${index}` },
         unconfirmed ? h('span', { className: 'bt_meta' }, t('ui.unconfirmed')) : null,
         showFailure && item?.failure ? h('span', { className: 'bt_meta' }, rawFailure(item.failure)) : null,
-        h('pre', { className: 'bt_raw' }, captureText(item)),
-        item?.detail?.kind === 'response' ? h('span', { className: 'bt_meta' },
+        preview.value ? h('code', { className: 'bt_primary' }, preview.value) : null,
+        inlineCopy ? h(CopyButton, { value: captureText(item), label: 'ui.copyCapture', t }) : null,
+        details ? captureDetails(item, t) : null,
+        item?.detail?.kind === 'response' && (item.detail.bodyReason === 'credential-protection' || item.detail.bodyState !== 'complete' && item.detail.bodyState !== undefined || !item.detail.body) ? h('span', { className: 'bt_meta' },
           t(item.detail.bodyReason === 'credential-protection' ? 'ui.authBodyProtected' : item.detail.bodyState === 'pending' ? 'ui.bodyPending' : item.detail.bodyState === 'truncated' ? 'ui.bodyTruncated'
             : item.detail.bodyState === 'unreadable' || item.detail.bodyState === 'error' ? 'ui.bodyUnreadable'
-              : !item.detail.body ? 'ui.bodyEmpty' : 'ui.details')) : null,
-        unconfirmed ? adviceRow(detailCheck(item?.detail), t, 'bt_captureAdvice') : null)
+              : 'ui.bodyEmpty')) : null,
+        unconfirmed && captureAdvice ? adviceRow(detailCheck(item?.detail), t, 'bt_captureAdvice') : null)
     }
-    function evidenceBody ({ state, failure, chosen, unconfirmed, candidates = [], extra, refresh }, t) {
+    function networkSection (selection, state, refresh, t, details = true) {
+      return h('section', { className: 'bt_section bt_network' },
+        h('h4', { className: 'bt_heading' }, t('ui.network')),
+        evidenceBody({ state, ...selection, refresh, details }, t))
+    }
+    function evidenceBody ({ state, failure, chosen, unconfirmed, candidates = [], extra, refresh, details = true, inlineCopy = true, captureAdvice = true }, t) {
       return h('div', { className: 'bt_body' },
         rawFailure(failure) ? h('pre', { className: 'bt_raw' }, rawFailure(failure)) : null,
-        chosen?.detail ? captureBlock(chosen, 0, t, unconfirmed) : null,
+        chosen?.detail ? captureBlock(chosen, 0, t, unconfirmed, false, details, inlineCopy, captureAdvice) : null,
         candidates.length ? disclosureBlock( null,
           h('summary', { className: 'bt_meta' }, toggleLabel(t), t('ui.candidates', { count: candidates.length })),
           ...candidates.map((item, index) => disclosureBlock( { className: 'bt_attempt', key: item.attemptId ?? index },
@@ -458,8 +502,12 @@ window.__ModuleLoader__.load({
         .replace(/\b(?:api[_-]?key|token|secret)["']?\s*[:=]\s*["']?[A-Za-z0-9._~+/=-]{8,}/gi, '[credential redacted]')
       if (Array.isArray(value)) return value.map(safeLogValue)
       if (!value || typeof value !== 'object') return value
+      const compactionError = value.type === 'compaction/end' && typeof value.data?.error === 'string'
+        ? safeCompactionFailure(value.data.error) : undefined
       return Object.fromEntries(Object.entries(value).map(([key, item]) => [key,
-        value.code === 'AUTH' && (key === 'message' || key === 'body') ? '[AUTH diagnostic hidden]' : safeLogValue(item)]))
+        value.type === 'compaction/end' && key === 'data' && typeof item?.error === 'string'
+          ? safeLogValue({ ...item, error: compactionError?.message || '[compaction diagnostic hidden]' })
+          : value.code === 'AUTH' && (key === 'message' || key === 'body') ? '[AUTH diagnostic hidden]' : safeLogValue(item)]))
     }
     const reportTime = (value, t) => {
       if (!Number.isFinite(value) || Math.abs(value) > 8640000000000000) return t('report.missing')
@@ -493,11 +541,16 @@ window.__ModuleLoader__.load({
         provider: row.provider || record?.provider || selected?.context?.provider || missing,
         model: record?.model || selected?.context?.model || missing,
         error: reportExcerpt(headline, 100, t).replace(/[.。…]+$/, ''),
-      }), t('report.version') + ': DSH ' + (runtime?.dshVersion || missing) + ' · Better Tips ' + (runtime?.pluginVersion || missing),
-        '', t('report.native') + ': ' + reportExcerpt(native, 600, t)]
+      }), t('report.version') + ': DSH ' + (runtime?.dshVersion || missing) + ' · Better Tips ' + (runtime?.pluginVersion || missing)]
+      const plugins = Array.isArray(runtime?.enabledPlugins) ? runtime.enabledPlugins : []
+      const pluginNames = [...new Set(plugins.filter((plugin) => typeof plugin?.name === 'string' && plugin.name.trim())
+        .map((plugin) => plugin.name + '@' + (typeof plugin.version === 'string' && plugin.version.trim() ? plugin.version : missing)))].sort()
+      const inventory = runtime?.pluginsStatus === 'complete' ? pluginNames.join('、') || t('report.pluginsNone')
+        : (pluginNames.length ? pluginNames.join('、') + ' · ' : '') + t(runtime?.pluginsStatus === 'partial' ? 'report.pluginsPartial' : 'report.pluginsUnavailable')
+      lines.push(t('report.plugins') + ': ' + inventory, '', t('report.native') + ': ' + reportExcerpt(native, 600, t))
       if (record || selection.unconfirmed) lines.push('', t('report.unconfirmed'))
       if (record) lines.push(t('report.summaryError') + ': ' +
-        (protectedAuth ? t('report.protected') : reportExcerpt(rawFailure(selected?.failure ?? selected?.thrown) || missing, 300, t)))
+        (protectedAuth ? t('report.protected') : reportExcerpt(rawFailure(selected?.failure ?? selected?.thrown) || (selected?.finishReason ? 'finish=' + selected.finishReason : missing), 300, t)))
       if (!detail) lines.push(t('report.underlying') + ': ' +
         (error ? t('report.noEvidence') + ' · ' + t('report.readFailed') + ': ' + reportExcerpt(error, 80, t)
           : capture?.installed === false ? t(capture.reason === 'config-disabled' ? 'ui.disabled' : 'ui.captureUnavailable')
@@ -552,11 +605,18 @@ window.__ModuleLoader__.load({
             catch (error) { problem = controller.signal.aborted ? 'Request timeout' : text(error?.message ?? error) }
           }
           if (!alive.current || operation.current !== controller) return
+          let environment
+          try { environment = await fetchJson('api/better-tips/environment', controller.signal) }
+          catch { environment = undefined }
+          if (!alive.current || operation.current !== controller) return
           const selected = select?.({ data }) ?? {}
-          const value = troubleshootingReport({ failure, row, title, runtime: data?.runtime,
+          const runtime = { ...data?.runtime, ...environment?.runtime,
+            enabledPlugins: environment?.runtime?.enabledPlugins,
+            pluginsStatus: Array.isArray(environment?.runtime?.enabledPlugins) ? environment.runtime.pluginsStatus ?? 'unavailable' : 'unavailable' }
+          const value = troubleshootingReport({ failure, row, title, runtime,
             selection: selected, record: selected.record ?? record, error: problem, capture: data?.capture }, t)
           setReport(value)
-          const partial = !data?.runtime?.dshVersion || !selected.chosen?.detail || !!problem
+          const partial = !runtime?.dshVersion || runtime.pluginsStatus !== 'complete' || !selected.chosen?.detail || !!problem
           try {
             if (typeof navigator?.clipboard?.writeText !== 'function') throw new Error('clipboard unavailable')
             await navigator.clipboard.writeText(value)
@@ -568,9 +628,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'bt_actions' },
           h('button', { type: 'button', className: 'bt_action bt_reportCopy', title: t('report.notice'), disabled: status === 'report.building', onClick: copy }, t('report.copy')),
           status ? h('span', { className: 'bt_meta', role: 'status' }, t(status)) : null),
-        report ? disclosureBlock( { className: 'bt_reportText', open: status === 'report.fallback' },
-          h('summary', { className: 'bt_meta' }, toggleLabel(t), t('report.preview')),
-          h('div', { className: 'bt_meta' }, t('report.notice')),
+        report && status === 'report.fallback' ? h('div', { className: 'bt_reportText' },
           h('pre', { className: 'bt_raw', tabIndex: 0 }, report)) : null)
     }
     function RawLog ({ sessionId, node, t, capture, unconfirmed }) {
@@ -661,40 +719,40 @@ window.__ModuleLoader__.load({
       const shortened = excerpt !== original || points.length > 120 || first.length < original.length
       return { value: points.slice(0, 120).join('') + (points.length > 120 || first.length < excerpt.length ? '…' : ''), shortened }
     }
+    function originalControls (failure, t) {
+      return h('div', { className: 'bt_originalControls' },
+        h('pre', { className: 'bt_original' }, rawFailure(failure)),
+        h(CopyButton, { value: rawFailure(failure), label: 'ui.copyError', t }))
+    }
     function errorRow (title, failure, state, selection, t, log, disclosure = {}) {
-      const original = rawFailure(failure)
-      const preview = failurePreview(failure)
-      const bottom = nativeHeadline(selection.chosen?.detail)
       const check = selection.check ?? (text(failure?.message) === 'Stream ended without finish_reason' ? 'finishReason'
         : selection.chosen?.detail && !selection.unconfirmed ? detailCheck(selection.chosen.detail) : failureCheck(failure))
+      const nativeFallback = disclosure.fallbackNative && !selection.chosen?.detail
       return h('div', { className: 'bt_errorGroup' },
-        h('div', { className: 'bt_originalRow' },
-          h('span', { className: 'bt_title' }, title),
-          h('span', { className: 'bt_source' }, t(disclosure.overview ? 'ui.overviewSource' : 'ui.nativeExcerpt')),
-          h('code', { className: 'bt_preview' }, preview.value),
-          preview.shortened ? h('span', { className: 'bt_meta' }, t('ui.preview')) : null),
-        failure?.code === 'AUTH' && !failure.message ? h('div', { className: 'bt_protected' }, t('ui.authProtected')) : adviceRow(check, t),
-        disclosure.report ?? null,
-        disclosureBlock( { className: 'bt_error bt_disclosure', open: disclosure.open, onToggle: disclosure.onToggle },
-          h('summary', null, toggleLabel(t), h('span', { className: 'bt_title' }, t('ui.expand')), disclosure.countLabel || null),
-          h('div', { className: 'bt_body bt_detailBody' },
-            disclosure.historyOnly ? null : h('section', { className: 'bt_section' },
-              h('h4', { className: 'bt_heading' }, t('ui.original')),
-              h('pre', { className: 'bt_original' }, original),
-              h(CopyButton, { value: original, label: 'ui.copyError', t })),
-            disclosure.history ?? null,
-            disclosure.historyOnly || disclosure.network === false ? null : disclosureBlock( { className: 'bt_section bt_network' },
-              h('summary', { className: 'bt_meta' }, toggleLabel(t), t('ui.network'),
-                bottom ? h('code', { className: 'bt_primary' }, bottom) : null,
-                selection.unconfirmed ? h('span', { className: 'bt_flag' }, t('ui.unconfirmed')) : null),
-              evidenceBody({ state, ...selection, refresh: log?.refresh }, t)),
-            log && !disclosure.historyOnly ? h('section', { className: 'bt_section' },
-              h('h4', { className: 'bt_heading' }, t('ui.logSection')),
-              h(RawLog, { ...log, key: JSON.stringify([log.sessionId, logCoordinate(log.node)]), t, capture: selection.chosen, unconfirmed: selection.unconfirmed })) : null)))
+        h('div', { className: 'bt_failureTitle' }, title),
+        nativeFallback ? h('section', { className: 'bt_section bt_nativeFallback' },
+          h('h4', { className: 'bt_heading' }, t('ui.original')),
+          originalControls(failure, t),
+          evidenceBody({ state }, t))
+          : disclosure.historyOnly ? null : networkSection(selection, state, null, t, false),
+        disclosure.nativeStatus ?? null,
+        disclosure.historyOnly ? null : failure?.code === 'AUTH' && !failure.message ? h('div', { className: 'bt_protected' }, t('ui.authProtected')) : adviceRow(check, t),
+        disclosure.historyOnly ? null : disclosure.report ?? null,
+        disclosure.historyOnly ? disclosure.history : h('div', { className: 'bt_detailPair' },
+          captureDetails(selection.chosen, t),
+          disclosureBlock({ className: 'bt_error bt_disclosure', open: disclosure.open, onToggle: disclosure.onToggle },
+            h('summary', null, toggleLabel(t), h('span', { className: 'bt_title' }, t(nativeFallback ? 'ui.logSection' : 'ui.original')), disclosure.countLabel || null),
+            h('div', { className: 'bt_body bt_detailBody' },
+              nativeFallback ? null : originalControls(failure, t),
+              disclosure.history ?? null,
+              log ? h('section', { className: 'bt_section' },
+                h('h4', { className: 'bt_heading' }, t('ui.logSection')),
+                h(RawLog, { ...log, key: JSON.stringify([log.sessionId, logCoordinate(log.node)]), t, capture: selection.chosen, unconfirmed: selection.unconfirmed })) : null))),
+        !disclosure.historyOnly ? h(RefreshButton, { refresh: log?.refresh, t }) : null)
     }
     function ErrorCard ({ title, failure, sessionId, node, url, revision, select, history, countLabel, historyOnly, reportFailure, reportRow, t }) {
       const [open, setOpen] = React.useState(false)
-      const [state, refresh] = useEvidence(open ? url : '', revision)
+      const [state, refresh] = useEvidence(url, revision)
       const selection = select(state)
       return errorRow(title, failure, state, selection, t, { sessionId, node, refresh }, {
         open, onToggle: (event) => { if (!event.target || event.target === event.currentTarget) setOpen(event.currentTarget.open) },
@@ -719,43 +777,68 @@ window.__ModuleLoader__.load({
       const delay = Number.isFinite(current.delayMs) ? ' · ' + t('ui.wait', { ms: Math.round(current.delayMs) }) : ''
       return t(label) + ' ' + current.retry + '/' + maximum + delay
     }
-    function failureCategory (failure) {
-      const status = Number.isInteger(failure?.status) && failure.status >= 400 && failure.status <= 599
-        ? String(failure.status) : text(failure?.message).match(/^\s*(?:HTTP\s+)?([45]\d{2})(?=\s|:|$)/)?.[1]
-      const code = text(failure?.code)
-      return text(failure?.message) === 'Stream ended without finish_reason' ? (code || 'TRANSPORT') + ' / finish_reason'
-        : [code, status ? 'HTTP ' + status : ''].filter(Boolean).join(' / ') || 'UNKNOWN'
+    function isErrorNode (node) {
+      return node?.visibility !== 'hidden' && (node?.kind === 'turn-error' || node?.kind === 'model-retry' || node?.kind === KIND
+        || node?.kind === 'manual-compaction' && node.data?.command?.outcome?.kind === 'error')
+    }
+    function followingError (snapshot, node) {
+      const order = snapshot?.order
+      const index = order?.indexOf(node?.key) ?? -1
+      if (index < 0 || !snapshot?.nodes?.get) return ''
+      let latest = ''
+      for (let at = index + 1; at < order.length; at++) {
+        const next = snapshot.nodes.get(order[at])
+        if (!next) return latest
+        if (isErrorNode(next)) latest = next.key
+      }
+      return latest
+    }
+    function ErrorSequenceRow ({ component, useChat, node, t, ...props }) {
+      const successor = typeof useChat === 'function' ? useChat((snapshot) => followingError(snapshot, node)) : ''
+      const identity = JSON.stringify([props.sessionId, node?.key, successor])
+      const [choice, setChoice] = React.useState(null)
+      const open = choice?.identity === identity && choice.open
+      const content = () => h(component, { ...props, node, t,
+        key: JSON.stringify([props.sessionId, node?.key, node?.id, logCoordinate(node), node?.data?.message, node?.data?.endedAt]) })
+      if (!successor || !isErrorNode(node)) return content()
+      return disclosureBlock({ className: 'bt_earlierNode bt_errorGroup', open,
+        onToggle: (event) => { if (!event.target || event.target === event.currentTarget) setChoice({ identity, open: event.currentTarget.open }) } },
+        h('summary', null, toggleLabel(t), t('ui.earlierBlock')),
+        open ? content() : null)
+    }
+    function earlierErrors (blocks, t) {
+      if (blocks.length < 2) return blocks
+      return [disclosureBlock({ className: 'bt_earlierErrors', key: 'earlier:' + blocks.at(-1).props.key },
+        h('summary', null, toggleLabel(t), t('ui.earlierErrors', { count: blocks.length - 1 })),
+        ...blocks.slice(0, -1).map((block, index) => disclosureBlock({ className: 'bt_earlierError', key: block.props.key },
+          h('summary', null, toggleLabel(t), t('ui.record', { index: index + 1 })), block))), blocks.at(-1)]
     }
     function retryHistory (attempts, state, sessionId, node, t, refresh) {
+      const blocks = attempts.map((attempt, index) => {
+        const failure = attempt.failure ?? {}
+        const selection = selectStep(state, attempt.step, failure, attempt, sessionId)
+        const attemptNode = { ...node, kind: 'model-retry', data: { current: attempt } }
+        const check = text(failure.message) === 'Stream ended without finish_reason' ? 'finishReason'
+          : selection.chosen?.detail && !selection.unconfirmed ? detailCheck(selection.chosen.detail) : failureCheck(failure)
+        return h('div', { className: 'bt_attempt', key: attempt.seq ?? attempt.attemptId ?? index },
+          index < attempts.length - 1 ? h('div', { className: 'bt_heading' }, retryTitle(attempt, t)) : null,
+          networkSection({ ...selection, inlineCopy: false, captureAdvice: false }, state, null, t, false),
+          failure.code === 'AUTH' && !failure.message ? h('div', { className: 'bt_meta' }, t('ui.authProtected')) : adviceRow(check, t, index === attempts.length - 1 ? 'bt_captureAdvice bt_advice' : 'bt_captureAdvice'),
+          selection.chosen?.detail ? h(CopyButton, { value: captureText(selection.chosen), label: 'ui.copyCapture', t }) : null,
+          h(ReportButton, { key: JSON.stringify([sessionId, attempt.seq, attempt.attemptId]),
+            url: requestUrl(sessionId, attempt.turn, 'retry'), state,
+            select: (fresh) => selectStep(fresh, attempt.step, failure, attempt, sessionId),
+            failure, row: attempt, title: retryTitle(attempt, t), t }),
+          h('div', { className: 'bt_detailPair' },
+            captureDetails(selection.chosen, t, selection.unconfirmed),
+            disclosureBlock({ className: 'bt_attemptNative' },
+              h('summary', null, toggleLabel(t), t('ui.original'), validSeq(attempt.seq) ? ' · seq=' + attempt.seq : ''),
+              originalControls(failure, t),
+              h(RawLog, { key: JSON.stringify([sessionId, logCoordinate(attemptNode)]), sessionId, node: attemptNode, t, capture: selection.chosen, unconfirmed: selection.unconfirmed }))))
+      })
+      const grouped = earlierErrors(blocks, t)
       return h('section', { className: 'bt_section bt_history' },
-        h('h4', { className: 'bt_heading' }, t('ui.history', { count: attempts.length })),
-        h('div', { className: 'bt_meta' }, t('ui.historyNote')),
-        h(RefreshButton, { refresh, t }),
-        ...attempts.map((attempt, index) => {
-          const failure = attempt.failure ?? {}
-          const selection = selectStep(state, attempt.step, failure, attempt, sessionId)
-          const attemptNode = { ...node, kind: 'model-retry', data: { current: attempt } }
-          return disclosureBlock( { className: 'bt_attempt', key: attempt.seq ?? attempt.attemptId ?? index },
-            h('summary', null, toggleLabel(t), h('span', { className: 'bt_title' }, t('ui.record', { index: index + 1 })),
-              h('span', { className: 'bt_meta' }, retryTitle(attempt, t) + (validSeq(attempt.seq) ? ' · seq=' + attempt.seq : '')),
-              h('span', { className: 'bt_source' }, t('ui.nativeExcerpt')),
-              h('code', { className: 'bt_attemptPreview' }, failurePreview(failure).value)),
-            h('div', null,
-              h('h4', { className: 'bt_heading' }, t('ui.original')),
-              h('pre', { className: 'bt_original' }, rawFailure(failure)),
-              h(CopyButton, { value: rawFailure(failure), label: 'ui.copyError', t }),
-              h(ReportButton, { key: JSON.stringify([sessionId, attempt.seq, attempt.attemptId]),
-                url: requestUrl(sessionId, attempt.turn, 'retry'), state,
-                select: (fresh) => selectStep(fresh, attempt.step, failure, attempt, sessionId),
-                failure, row: attempt, title: retryTitle(attempt, t), t }),
-              failure.code === 'AUTH' && !failure.message ? h('div', { className: 'bt_meta' }, t('ui.authProtected')) : adviceRow(text(failure.message) === 'Stream ended without finish_reason' ? 'finishReason' : selection.chosen?.detail && !selection.unconfirmed ? detailCheck(selection.chosen.detail) : failureCheck(failure), t, 'bt_captureAdvice'),
-              disclosureBlock( { className: 'bt_network' },
-                h('summary', { className: 'bt_meta' }, toggleLabel(t), t('ui.network'),
-                  nativeHeadline(selection.chosen?.detail) ? h('code', { className: 'bt_primary' }, nativeHeadline(selection.chosen.detail)) : null,
-                  selection.unconfirmed ? h('span', { className: 'bt_flag' }, t('ui.unconfirmed')) : null),
-                evidenceBody({ state, ...selection, refresh }, t)),
-              h(RawLog, { key: JSON.stringify([sessionId, logCoordinate(attemptNode)]), sessionId, node: attemptNode, t, capture: selection.chosen, unconfirmed: selection.unconfirmed })))
-        }))
+        ...grouped.toReversed(), h(RefreshButton, { refresh, t }))
     }
     function ModelRetryRow ({ node, sessionId, t = (key) => key }) {
       const current = node?.data?.current ?? {}
@@ -763,13 +846,10 @@ window.__ModuleLoader__.load({
       if (current.retry === undefined) return null
       // Native node.attempts is producer-correlated durable history, not the volatile capture cache.
       const attempts = node.data.attempts?.length ? node.data.attempts : [current]
-      const categories = new Set(attempts.map((attempt) => failureCategory(attempt.failure)))
-      const countLabel = t('ui.history', { count: attempts.length }) + (categories.size > 1 ? ' · ' + t('ui.different', { count: categories.size }) : '')
-      const summaryFailure = categories.size > 1 ? { message: t('ui.categoryOverview') + ' · ' + [...categories].join(' · ') } : failure
-      return h(ErrorCard, { title: retryTitle(current, t), failure: summaryFailure, reportFailure: failure, reportRow: current, sessionId, node, t, historyOnly: true,
+      return h(ErrorCard, { title: retryTitle(current, t), failure, sessionId, node, t, historyOnly: true,
         url: requestUrl(sessionId, current.turn, 'retry'), revision: JSON.stringify([node.id, attempts.length, current.seq, current.retry, current.retryState, failure]),
-        select: (state) => ({ ...selectStep(state, current.step, failure, current, sessionId), ...(categories.size > 1 ? { check: 'mixed' } : {}) }),
-        countLabel: () => countLabel, history: (state, refresh) => retryHistory(attempts, state, sessionId, node, t, refresh) })
+        select: (state) => selectStep(state, current.step, failure, current, sessionId),
+        history: (state, refresh) => retryHistory(attempts, state, sessionId, node, t, refresh) })
     }
     function compactionUrl (sessionId) {
       return sessionId ? `api/better-tips/compaction?${new URLSearchParams({ sessionId, source: 'compaction-row' })}` : ''
@@ -779,7 +859,7 @@ window.__ModuleLoader__.load({
       let best
       let distance = Infinity
       for (const record of state?.data?.records ?? []) {
-        if (record.status !== status && !(status === 'error' && record.status === 'thrown')) continue
+        if (record.status !== status && !(status === 'error' && ['thrown', 'max-tokens', 'incomplete'].includes(record.status))) continue
         const start = record.startedAt
         const end = record.endedAt ?? start
         if (Number.isFinite(startAt) && start < startAt - 5000) continue
@@ -798,32 +878,95 @@ window.__ModuleLoader__.load({
         h('h4', { className: 'bt_heading' }, t('ui.attempts', { count: record.attempts?.length ?? 0 })),
         h('div', { className: 'bt_meta' }, t('ui.timingMatch')),
         h('div', { className: 'bt_meta' }, facts.join(' · ')),
-        ...(record.attempts ?? []).map((attempt, index) => {
+        ...earlierErrors((record.attempts ?? []).map((attempt, index) => {
           const failure = attempt.failure ?? attempt.thrown
-          return disclosureBlock( { className: 'bt_attempt', key: attempt.attemptId ?? record.id + ':' + (attempt.index ?? index) },
-            h('summary', null, toggleLabel(t), h('span', { className: 'bt_title' }, t('compact.attempt', { index: attempt.index ?? index + 1 })),
-              h('span', { className: 'bt_source' }, t('ui.nativeExcerpt')),
-              h('code', { className: 'bt_attemptPreview' }, failure ? failurePreview(failure).value : '')),
-            h('div', null,
-              failure ? h('h4', { className: 'bt_heading' }, t('ui.original')) : null,
-              failure ? h('pre', { className: 'bt_original' }, rawFailure(failure)) : null,
-              failure ? h(CopyButton, { value: rawFailure(failure), label: 'ui.copyError', t }) : null,
-              attempt.detail ? disclosureBlock( { className: 'bt_network' },
-                h('summary', { className: 'bt_meta' }, toggleLabel(t), t('ui.network')),
-                captureBlock(attempt, index, t, true)) : h('span', { className: 'bt_meta' }, t('ui.empty'))))
-        }))
+          return h('div', { className: 'bt_attempt', key: attempt.attemptId ?? record.id + ':' + (attempt.index ?? index) },
+            h('h4', { className: 'bt_heading' }, t('compact.attempt', { index: attempt.index ?? index + 1 }) + (attempt.finishReason ? ' · finish=' + attempt.finishReason : '')),
+            attempt.detail ? networkSection({ chosen: attempt, unconfirmed: true }, { data: {} }, null, t, false) : h('span', { className: 'bt_meta' }, t('ui.empty')),
+            h('div', { className: 'bt_detailPair' },
+              captureDetails(attempt, t),
+              failure ? disclosureBlock({ className: 'bt_attemptNative' },
+                h('summary', null, toggleLabel(t), t('ui.original')),
+                originalControls(failure, t)) : null))
+        }), t))
+    }
+    function safeCompactionFailure (message) {
+      if (typeof message !== 'string') return undefined
+      // errorChain persists text, not the original error code. Unknown text may
+      // be an AUTH message; never recover it merely because the transaction matches.
+      if (/\bAUTH\b/.test(message)) return { code: 'AUTH', message: '' }
+      if (message === 'summarization truncated at the token cap (incomplete checkpoint)') return { code: 'MAX_TOKENS', message }
+      if (message === 'summarization produced no text summary content'
+        || message === 'compaction summary cannot contain image output'
+        || /^summary is not smaller than the shadowed content \(\d+ estimated framed tokens >= \d+\)$/.test(message)
+        || /^compaction: (?:session surface changed during summarization|selected surface changed before summarization began|the selected span changed during summarization|the selected span was rewritten during summarization)$/.test(message)) return { message }
+      return undefined
+    }
+    function useManualCompactionFailure (sessionId, command) {
+      const identity = JSON.stringify([sessionId, command?.commandId, command?.seq])
+      const [state, setState] = React.useState(null)
+      React.useEffect(() => {
+        if (!sessionId || !command?.commandId) return undefined
+        let cancelled = false
+        let release
+        const publish = (value) => { if (!cancelled) setState((previous) => value.error && previous?.identity === identity && previous.failure ? previous : { identity, ...value }) }
+        try {
+          const binding = sessionService?.binding(sessionId)
+          if (!binding?.eventSource) { publish({ missing: true }); return undefined }
+          const read = () => {
+            if (cancelled) return
+            try {
+              const events = (binding.eventSource.getSnapshot()?.entries ?? []).filter((entry) => entry.type === 'event').map((entry) => entry.event)
+              const own = events.filter((event) => event.data?.sourceCommandId === command.commandId)
+              const ids = new Set(own.filter((event) => event.type === 'compaction/start' || event.type === 'compaction/end').map((event) => event.data.compactionId).filter((id) => typeof id === 'string' && id))
+              const done = events.filter((event) => event.type === 'command/done' && event.data?.commandId === command.commandId)
+              const ends = ids.size === 1 && done.length <= 1 ? own.filter((event) => event.type === 'compaction/end' && ids.has(event.data.compactionId)
+                && validSeq(event.seq) && (!validSeq(command.seq) || event.seq >= command.seq)
+                && (done.length !== 1 || event.seq <= done[0].seq)) : []
+              const event = ends.length === 1 ? ends[0] : undefined
+              if (!event || typeof event.data.error !== 'string' || !event.data.error) { publish({ missing: true }); return }
+              const failure = safeCompactionFailure(event.data.error)
+              if (!failure) { publish({ missing: true }); return }
+              publish({ eventSeq: event.seq, compactionId: event.data.compactionId, time: event.time, failure })
+            } catch { publish({ error: true }) }
+          }
+          release = binding.eventSource.subscribe(read)
+          read()
+          if (validSeq(command.seq) && typeof binding.session?.loadThrough === 'function') {
+            Promise.resolve(binding.session.loadThrough(command.seq)).then(read, () => publish({ error: true }))
+          }
+        } catch { publish({ error: true }) }
+        return () => { cancelled = true; release?.() }
+      }, [identity])
+      return state?.identity === identity ? state : null
     }
     function CompactionErrorCard ({ title, fallback, sessionId, node, match, revision, t }) {
       const [open, setOpen] = React.useState(false)
-      const [state, refresh] = useEvidence(open ? compactionUrl(sessionId) : '', revision)
+      const [state, refresh] = useEvidence(compactionUrl(sessionId), revision)
       const record = selectCompaction(state, match)
-      return errorRow(title, { message: fallback }, state, {}, t, { sessionId, node, refresh }, {
+      const command = node?.data?.command
+      const nativeRecord = useManualCompactionFailure(sessionId, command)
+      const chosen = record?.attempts?.at(-1)
+      const protect = chosen?.failure?.code === 'AUTH' || chosen?.thrown?.code === 'AUTH' || chosen?.detail?.protected
+      const nativeFailure = nativeRecord?.failure ?? (command ? { message: fallback } : safeCompactionFailure(fallback))
+      const failure = protect ? { code: 'AUTH', message: '' } : nativeFailure ?? { message: t('compact.errorProtected') }
+      const selection = { chosen, unconfirmed: !!record }
+      return errorRow(title, failure, state, selection, t, { sessionId, node, refresh }, {
+        nativeStatus: !chosen?.detail && (chosen?.failure || chosen?.thrown) ? h('section', { className: 'bt_summaryFailure' },
+          h('h4', { className: 'bt_heading' }, t('report.summaryError') + ' · ' + t('ui.unconfirmed')),
+          protect ? h('div', { className: 'bt_protected' }, t('ui.authProtected'))
+            : originalControls(chosen.failure ?? chosen.thrown, t))
+          : chosen?.finishReason ? h('section', { className: 'bt_summaryFailure' },
+            h('h4', { className: 'bt_heading' }, t('report.summaryError') + ' · ' + t('ui.unconfirmed')),
+            h('code', { className: 'bt_meta' }, 'finish=' + chosen.finishReason))
+            : command && !nativeRecord?.failure ? h('div', { className: 'bt_meta' }, t(nativeRecord?.error ? 'compact.recordFailed' : 'compact.recordMissing')) : null,
+        fallbackNative: true,
         open, onToggle: (event) => { if (!event.target || event.target === event.currentTarget) setOpen(event.currentTarget.open) }, network: false,
-        report: h(ReportButton, { key: JSON.stringify([sessionId, logCoordinate(node), revision]),
-          url: compactionUrl(sessionId), state, failure: { message: fallback }, row: node?.data?.command ?? node?.data, title, t,
+        report: h(ReportButton, { key: JSON.stringify([sessionId, logCoordinate(node), revision, nativeRecord?.eventSeq, failure]),
+          url: compactionUrl(sessionId), state, failure, row: command ?? node?.data, title, t,
           select: (fresh) => {
             const matched = selectCompaction(fresh, match)
-            const attempt = [...(matched?.attempts ?? [])].reverse().find((item) => item.failure || item.thrown)
+            const attempt = matched?.attempts?.at(-1)
             return { chosen: attempt, unconfirmed: !!matched, record: matched }
           } }),
         history: h(React.Fragment, null, compactionExtra(record, t),
@@ -896,7 +1039,8 @@ window.__ModuleLoader__.load({
           for (const [key, component] of [
             ['turn-error', TurnErrorRow], ['model-retry', ModelRetryRow], ['compaction', CompactionRow],
             ['manual-compaction', ManualCompactionRow], [KIND, CompactionFailureRow],
-          ]) yield ctx.slots.register({ name: 'conversation.chat.node', key, priority: -100, locale: NS }, component)
+          ]) yield ctx.slots.register({ name: 'conversation.chat.node', key, priority: -100, locale: NS },
+            key === 'compaction' ? component : (props) => h(ErrorSequenceRow, { ...props, component }))
         })
       },
     }

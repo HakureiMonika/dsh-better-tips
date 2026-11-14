@@ -27,7 +27,8 @@
 
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { join, resolve, dirname } from 'node:path'
+import { join, resolve, dirname, isAbsolute } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import { readLogMetadata } from './lib/log-metadata.js'
 import { describeError, installFetchDiagnostics, redactSecrets } from './lib/fetch-diagnostics.js'
@@ -157,6 +158,24 @@ function shapeDetail (record, protectCredentials = false) {
   }
 }
 
+/** Authentication can be wrapped by an adapter error; withhold the whole diagnostic text. */
+function hasAuthCause (value) {
+  const seen = new Set()
+  const pending = [{ value, depth: 0 }]
+  for (let index = 0; index < pending.length && index < 64; index++) {
+    const { value, depth } = pending[index]
+    if (!value || typeof value !== 'object' || depth > 16 || seen.has(value)) continue
+    if (value.code === 'AUTH') return true
+    seen.add(value)
+    const append = (child) => { if (pending.length < 64) pending.push({ value: child, depth: depth + 1 }) }
+    if (value.cause !== undefined) append(value.cause)
+    if (Array.isArray(value.errors)) {
+      for (let at = 0; at < value.errors.length && pending.length < 64; at++) append(value.errors[at])
+    }
+  }
+  return false
+}
+
 /** One "captured but unmatched" request: address, time and the failure shape. */
 function shapeRecent (record) {
   return {
@@ -232,10 +251,11 @@ export function apply (ctx, config = {}) {
     const records = diagnostics?.recordsFor(context.attemptId) ?? []
     return records.filter((record) => record.context?.sessionId === context.sessionId && record.context?.provider === context.provider).at(-1)
   }
-  function scopedStream (options, next, onFailure) {
+  function scopedStream (options, next, onContext) {
     const context = { attemptId: randomUUID(), sessionId: options.sessionId, provider: options.provider,
       model: typeof options.model === 'string' ? options.model : undefined,
       purpose: options.purpose ?? 'agent', startedAt: Date.now() }
+    onContext?.(context)
     return (async function * () {
       const source = await scoped(context, next)
       const iterator = scoped(context, () => source[Symbol.asyncIterator]())
@@ -255,7 +275,6 @@ export function apply (ctx, config = {}) {
                 pendingFailures.set(context.sessionId, pending.slice(-12))
                 pruneDetails(pendingFailures)
               }
-              onFailure?.(context, failure)
             }
           }
           yield chunk
@@ -330,7 +349,11 @@ export function apply (ctx, config = {}) {
           let context
           const attemptOptions = { ...options, signal }
           try {
-            const stream = scopedStream(attemptOptions, () => dispatch(attemptOptions), (value) => { context = value })
+            const stream = scopedStream(attemptOptions, () => dispatch(attemptOptions), (value) => {
+              context = value
+              attempt.attemptId = value.attemptId
+              attempt.provenance = 'request-context'
+            })
             for await (const chunk of stream) {
               signal.throwIfAborted()
               chunks.push(chunk)
@@ -339,7 +362,9 @@ export function apply (ctx, config = {}) {
           } catch (error) {
             attempt.endedAt = Date.now()
             attempt.elapsedMs = attempt.endedAt - attempt.startedAt
+            attempt.protectedAuth = hasAuthCause(error)
             attempt.thrown = describeError(error)
+            if (context) attempt.detail = captureFor(context)
             record.attempts.push(attempt)
             record.status = signal.aborted ? 'aborted' : 'thrown'
             record.endedAt = attempt.endedAt
@@ -348,14 +373,11 @@ export function apply (ctx, config = {}) {
           attempt.endedAt = Date.now()
           attempt.elapsedMs = attempt.endedAt - attempt.startedAt
           const reason = finish?.reason
+          attempt.finishReason = reason?.kind
           if (reason?.kind === 'error') {
             attempt.failure = { message: String(reason.failure?.message ?? ''), code: String(reason.failure?.code ?? ''),
               status: reason.failure?.status ?? statusFromMessage(reason.failure?.message) }
-            if (context) {
-              attempt.attemptId = context.attemptId
-              attempt.provenance = 'request-context'
-              attempt.detail = captureFor(context)
-            }
+            if (context) attempt.detail = captureFor(context)
             record.attempts.push(attempt)
             if (!shouldRetry({ failure: reason.failure, settings }).retry || index > settings.compactionRetries || signal.aborted) {
               record.status = signal.aborted ? 'aborted' : 'error'
@@ -373,7 +395,9 @@ export function apply (ctx, config = {}) {
             }
             continue
           }
-          record.status = reason?.kind === 'aborted' ? 'aborted' : finish ? 'ok' : 'incomplete'
+          // This is the summary request's terminal state, not proof of compaction commit.
+          record.status = reason?.kind === 'stop' || reason?.kind === 'tool-calls' ? 'ok'
+            : reason?.kind === 'max-tokens' ? 'max-tokens' : reason?.kind === 'aborted' ? 'aborted' : 'incomplete'
           const usage = chunks.find((chunk) => chunk?.type === 'usage')
           if (usage?.usage !== undefined) record.usage = usage.usage
           record.attempts.push(attempt)
@@ -455,6 +479,170 @@ export function apply (ctx, config = {}) {
       Promise.resolve().then(() => packageDirectory('@deepseek-ai/dsh')).then((directory) => packageVersion(directory, '@deepseek-ai/dsh')).catch(() => null),
       packageVersion(new URL('.', import.meta.url), name),
     ]).then(([dshVersion, pluginVersion]) => ({ dshVersion, pluginVersion }))
+    const enabledPluginInventory = async (signal) => {
+      signal.throwIfAborted()
+      let partial = false
+      let entriesAvailable = false
+      let bundlesAvailable = false
+      const unique = new Map()
+      const manifests = new Map()
+      const resolutions = new Map()
+      const nativePackages = new Set()
+      const get = (key) => { try { return scope.get(key) } catch { partial = true; return undefined } }
+      const packages = get('pluginPackages')
+      const manager = get('pluginManager')
+      const loader = get('loader')
+      const hostBase = scope.baseUrl ?? ctx.baseUrl ?? import.meta.url
+      const packageName = (value) => {
+        if (typeof value !== 'string' || value.startsWith('.') || value.includes(':') || isAbsolute(value)) return undefined
+        const parts = value.split('/')
+        const name = value.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]
+        return /^(?:@[A-Za-z0-9._~-]+\/)?[A-Za-z0-9._~-]+$/.test(name) && redactDiagnosticString(name) === name ? name : undefined
+      }
+      const add = (name, version) => {
+        if (nativePackages.has(name)) return
+        if (packageName(name) !== name) { partial = true; return }
+        const safeVersion = typeof version === 'string' && /^[0-9A-Za-z][0-9A-Za-z.+_-]*$/.test(version) && redactDiagnosticString(version) === version ? version : null
+        if (safeVersion === null) partial = true
+        unique.set(JSON.stringify([name, safeVersion]), { name, version: safeVersion })
+      }
+      let bundles = []
+      try {
+        if (typeof manager?.listBundles === 'function') {
+          const listed = await manager.listBundles()
+          signal.throwIfAborted()
+          if (!Array.isArray(listed)) throw new Error('invalid inventory')
+          bundles = listed
+          bundlesAvailable = true
+          for (const bundle of bundles) if (bundle.official === true || bundle.availability === 'installation') {
+            nativePackages.add(bundle.name)
+            for (const row of bundle.rows ?? []) { const name = packageName(row.moduleName); if (name) nativePackages.add(name) }
+          }
+        }
+      } catch { signal.throwIfAborted(); partial = true }
+      const readManifest = (path) => {
+        if (!manifests.has(String(path))) manifests.set(String(path), (async () => {
+          signal.throwIfAborted()
+          try { const value = JSON.parse(await readFile(path, { encoding: 'utf8', signal })); signal.throwIfAborted(); return value } catch (error) { signal.throwIfAborted(); return undefined }
+        })())
+        return manifests.get(String(path))
+      }
+      const resolveEntry = async (moduleName, anchor = hostBase) => {
+        signal.throwIfAborted()
+        if (typeof moduleName === 'string' && moduleName.startsWith('cordis:')) return
+        const key = JSON.stringify([moduleName, anchor])
+        if (!resolutions.has(key)) resolutions.set(key, (async () => {
+          const name = packageName(moduleName)
+          if (nativePackages.has(name)) return
+          let manifestPath
+          try {
+            if (name) {
+              if (typeof packages?.packageOf === 'function') manifestPath = packages.packageOf(name, anchor)?.manifestPath
+              else {
+                for (const root of createRequire(anchor).resolve.paths(name) ?? []) {
+                  const path = join(root, name, 'package.json')
+                  if (await readManifest(path)) { manifestPath = path; break }
+                }
+              }
+            } else if (typeof moduleName === 'string' && !moduleName.startsWith('cordis:')) {
+              const url = isAbsolute(moduleName) ? undefined : new URL(moduleName, anchor)
+              let directory = dirname(isAbsolute(moduleName) ? moduleName : url?.protocol === 'file:' ? fileURLToPath(url) : '')
+              if (directory !== '.') for (;;) {
+                const path = join(directory, 'package.json')
+                if (await readManifest(path)) { manifestPath = path; break }
+                const parent = dirname(directory)
+                if (parent === directory) break
+                directory = parent
+              }
+            }
+          } catch { signal.throwIfAborted() }
+          const manifest = manifestPath ? await readManifest(manifestPath) : undefined
+          if (manifest && (!name || manifest.name === name)) {
+            const repository = typeof manifest.repository === 'string' ? manifest.repository : manifest.repository?.url
+            const nativeRepository = typeof repository === 'string' && /^(?:git\+)?https:\/\/github\.com\/deepseek-ai\/deepseek-harness(?:\.git)?\/?$/.test(repository)
+            if (nativeRepository) {
+              nativePackages.add(manifest.name)
+              for (const [key, plugin] of unique) if (plugin.name === manifest.name) unique.delete(key)
+            } else add(manifest.name, manifest.version)
+          }
+          else { partial = true; if (name) add(name, null) }
+        })())
+        await resolutions.get(key)
+        signal.throwIfAborted()
+      }
+      try {
+        if (typeof loader?.entries === 'function') {
+          const entries = [...loader.entries()]
+          entriesAvailable = true
+          for (const entry of entries) {
+            signal.throwIfAborted()
+            if (entry.options?.group || entry.disabled) continue
+            await resolveEntry(entry.options?.name, entry.parent?.tree?.ctx?.baseUrl ?? hostBase)
+          }
+        } else if (typeof manager?.listPlugins === 'function') {
+          const entries = await manager.listPlugins()
+          signal.throwIfAborted()
+          if (!Array.isArray(entries)) throw new Error('invalid inventory')
+          entriesAvailable = true
+          for (const entry of entries) if (entry.enabled === true) await resolveEntry(entry.moduleName)
+        }
+      } catch { signal.throwIfAborted(); partial = true }
+      for (const bundle of bundles) {
+        signal.throwIfAborted()
+        if (bundle.enabled === true) add(bundle.name, bundle.version)
+      }
+      try {
+        const presets = get('agentPresets')
+        if (presets) {
+          const inspected = typeof presets.inspectCompositions === 'function' ? presets.inspectCompositions() : []
+          signal.throwIfAborted()
+          if (!Array.isArray(inspected)) throw new Error('invalid preset inventory')
+          for (const composition of inspected) for (const entry of composition.modules ?? []) {
+            await resolveEntry(entry.moduleName, entry.useHostBase ? hostBase : entry.baseUrl ?? hostBase)
+          }
+          if (typeof presets.compositionInventory !== 'function') partial = true
+          else {
+            const compositions = await presets.compositionInventory()
+            signal.throwIfAborted()
+            if (!Array.isArray(compositions)) throw new Error('invalid preset inventory')
+            for (const composition of compositions) {
+              if (composition.broken) partial = true
+              for (const row of composition.rows ?? []) {
+                signal.throwIfAborted()
+                const name = packageName(row.moduleName)
+                if (nativePackages.has(name) || typeof row.moduleName === 'string' && row.moduleName.startsWith('cordis:')) continue
+                const exact = inspected.some((item) => item.id === composition.id && item.modules?.some((entry) => entry.moduleName === row.moduleName))
+                if (row.enabled === 'conditional') continue
+                if (row.enabled !== true) continue
+                if (!exact) {
+                  partial = true
+                  if (name) add(name, null)
+                }
+              }
+            }
+          }
+        }
+      } catch { signal.throwIfAborted(); partial = true }
+      signal.throwIfAborted()
+      return { enabledPlugins: [...unique.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : (a.version ?? '') < (b.version ?? '') ? -1 : (a.version ?? '') > (b.version ?? '') ? 1 : 0),
+        pluginsStatus: !entriesAvailable && !bundlesAvailable ? 'unavailable' : partial || !entriesAvailable || !bundlesAvailable ? 'partial' : 'complete' }
+    }
+    const environmentHandler = async (request) => {
+      const admission = connection.admit(request)
+      if (admission.rejection) return jsonResponse({ error: 'unauthorized' }, admission.rejection)
+      if (admission.peer?.principal?.kind !== 'owner') return jsonResponse({ error: 'owner required' }, 403)
+      try {
+        request.signal.throwIfAborted()
+        const inventory = await enabledPluginInventory(request.signal)
+        const [dshVersion, pluginVersion] = await Promise.all([
+          packageDirectory('@deepseek-ai/dsh').then((directory) => packageVersion(directory, '@deepseek-ai/dsh')),
+          packageVersion(new URL('.', import.meta.url), name),
+        ])
+        request.signal.throwIfAborted()
+        return jsonResponse({ runtime: { dshVersion, pluginVersion, ...inventory } })
+      } catch { return jsonResponse({ error: request.signal.aborted ? 'cancelled' : 'environment unavailable' }, request.signal.aborted ? 499 : 503) }
+    }
+    scope.effect(() => connection.fetch.register({ path: '/api/better-tips/environment', methods: ['GET'], requestBody: 'buffered', fetch: environmentHandler }), 'better-tips: report environment api')
     const metadataHandler = async (request) => {
       const admission = connection.admit(request)
       if (admission.rejection) return jsonResponse({ error: 'unauthorized' }, admission.rejection)
@@ -570,16 +758,18 @@ export function apply (ctx, config = {}) {
           usage: record.usage,
           attempts: record.attempts.map((attempt) => {
             const capture = attempt.detail
+            const protectedAuth = attempt.failure?.code === 'AUTH' || attempt.protectedAuth || hasAuthCause(attempt.thrown)
             return {
               index: attempt.index,
               attemptId: attempt.attemptId,
               provenance: attempt.provenance,
               at: attempt.startedAt,
               elapsedMs: attempt.elapsedMs,
+              finishReason: attempt.finishReason,
               failure: attempt.failure,
-              thrown: attempt.thrown,
+              thrown: protectedAuth && attempt.thrown ? { code: 'AUTH', message: '', protected: true } : attempt.thrown,
               lagMs: capture === undefined ? undefined : Math.max(0, (attempt.endedAt ?? record.endedAt) - capture.at),
-              detail: capture === undefined ? undefined : shapeDetail(capture, attempt.failure?.code === 'AUTH'),
+              detail: capture === undefined ? undefined : shapeDetail(capture, protectedAuth),
             }
           }),
         }))
