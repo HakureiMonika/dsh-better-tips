@@ -1,26 +1,41 @@
-# Release Notes — 0.13.0
+# Release Notes — 0.13.2
 
-本版改进错误展示、压缩失败诊断及可复制排障报告，兼容范围仍为 DSH `>=0.2.2-rc.2 <0.3.0`、Node.js `>=24.9.0`。
+## 中文
 
-## 主要变化
+- **原生错误退让**：没有有效、确认匹配的底层捕获时，直接显示 DSH 原生报错和完整错误复制入口；补充工具参数 JSON 格式错误的排查建议。
+- **请求关联更准确**：通过请求身份和原始日志事件坐标匹配普通请求与重试记录。未确认的捕获不覆盖当前原生错误。
+- **最新报错可折叠**：支持手动收起最新报错，保留红色「最新的报错」标记；新报错默认展开。
+- **跟随 DSH 中英文**：界面、超时提示、复制反馈和新生成的排障报告随 DSH 语言切换，原始错误正文不翻译。
+- **双语文档与截图**：重写中英文 README，补充目录及 8 张对应截图；npm 包也包含两份文档和截图。
 
-- **更清晰的错误卡**：默认展示截获错误的短预览；「底层原始详情」与「DSH 原生报错」纵向同级展开，完整原文可独立复制。
-- **最近失败优先**：重试状态下直接展示底层报错与对应排查建议，移除重复记录标题；即使报错之间隔着正常消息，也只默认展示最后一条，更早报错在原位置折叠保留。
-- **报告包含第三方插件版本**：每次点击重新读取已启用第三方插件名称与版本，排除 DSH 自带及官方插件；只导出名称和版本，不导出配置、凭据、安装路径或来源地址。读取不全或不可用会明确标注，环境接口仅 owner 可访问。
-- **压缩诊断更准确**：请求抛出异常也能保留预先建立的请求身份与可关联网络证据；token 上限不再误记成功。手动压缩失败通过原使命令和事务读取持久化记录，未知自由文本不自动恢复。
-- **认证错误保护**：识别包装异常及 AggregateError 中的 AUTH 原因，避免在详情或报告中重新暴露受保护内容。
+### 验证与说明
 
-## 验证与限制
+- Node.js 24.21.0 下 240 项测试通过；语法检查与发包清单检查通过。
+- 已在 Windows DSH 0.2.2-rc.3 中复现连接中断、429 限流和 502 网关错误，核验实际捕获及日志关联。
+- 兼容声明：DSH `>=0.2.2-rc.2 <0.3.0`，Node.js `>=24.9.0`。Linux、macOS 尚未实机验证。
+- 额外重试会发起真实请求，可能与其他重试插件叠加。两个重试预算设为 `0` 可关闭本插件的额外重试。
+- 网络证据限量保存在进程内；退出后无法恢复。错误正文与相邻日志可能包含输入内容，分享前请检查。
+- 0.13.1 已推送 GitHub，但未成功发布到 npm；本版包含该版本的功能更新。
 
-- 221 项自动化测试通过，语法与发布内容检查通过。
-- 使用本机模拟上游执行真实 `/compact`，确认摘要 HTTP 400 及原生命令失败均已持久化；未调用真实模型。
-- 以上不代表生产桌面聊天界面已经验收；SDK 进程中的网络捕获不等于桌面进程捕获。已声明兼容范围不等于对未来版本所有私有契约作保证。
-- 重试预算与默认配置不变，无新增配置项。
-- HTTP 200 内的协议错误或正常 EOF 不一定有网络捕获。没有截获证据时保留原生提示；不承诺所有错误都有更具体的原因。
-- 常见凭据过滤不是完整隐私清洗；响应、报错及相邻日志可能回显输入，分享前请人工检查。
+## English
 
-## 安装与更新
+- **Native error fallback**: Shows the DSH native error and full-error copy control when no usable, confirmed capture exists. Adds troubleshooting checks for malformed tool-argument JSON.
+- **More accurate request matching**: Links model and retry failures by request identity and exact log event coordinates. Unconfirmed captures do not replace the current native error.
+- **Collapsible latest error**: Manually collapse the latest error into a red “Latest error” label. New errors expand by default.
+- **Follows DSH Chinese/English**: Controls, timeout messages, copy feedback, and newly generated reports follow the DSH language. Original error text stays unchanged.
+- **Bilingual docs and screenshots**: Updated READMEs with contents and 8 localized screenshots, all included in the npm package.
 
-- npm：`dsh-better-tips@0.13.0`
-- GitHub：<https://github.com/HakureiMonika/dsh-better-tips/releases/tag/v0.13.0>
-- 已安装用户通过 DSH 的插件管理更新；启用状态和运行时是否已加载新版本应在本机确认。
+### Verification and notes
+
+- 240 tests passed on Node.js 24.21.0; syntax and package-content checks passed.
+- Socket failures, HTTP 429, and HTTP 502 were reproduced in Windows DSH 0.2.2-rc.3, with actual captures and log associations verified.
+- Declared compatibility: DSH `>=0.2.2-rc.2 <0.3.0`, Node.js `>=24.9.0`. Linux and macOS have not been tested on real systems.
+- Extra retries make real requests and may stack with other retry plugins. Set both budgets to `0` to disable this plugin's extra retries.
+- Network evidence is bounded and process-local. Error bodies and nearby log events can contain input text; review before sharing.
+- Version 0.13.1 was pushed to GitHub but not published successfully to npm. This release includes those features.
+
+## Install
+
+```sh
+dsh plugin add dsh-better-tips@0.13.2
+```
