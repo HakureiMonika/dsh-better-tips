@@ -26,7 +26,7 @@ await import('../client.js')
 assert.equal(registration?.id, 'dsh-better-tips')
 assert.equal(typeof registration.factory, 'function')
 
-function mountFactory (sessions) {
+function mountFactory (sessions, language = 'zh') {
   const slots = []
   const definitions = []
   const injectionKeys = []
@@ -62,13 +62,14 @@ function mountFactory (sessions) {
     },
   }
   module.apply(ctx)
-  const dictionary = locale?.dictionaries?.zh
   const t = (key, parameters = {}) => {
-    assert.equal(typeof dictionary?.[key], 'string', `missing actual Chinese translation ${key}`)
+    const dictionary = locale?.dictionaries?.[language]
+    assert.equal(typeof dictionary?.[key], 'string', `missing actual ${language} translation ${key}`)
     return dictionary[key].replace(/\{([^{}]+)\}/g, (match, name) => Object.hasOwn(parameters, name) ? String(parameters[name]) : match)
   }
   return {
     module, slots, definitions, injectionKeys, locale, t, occupied,
+    setLanguage (value) { assert.ok(['zh', 'en'].includes(value)); language = value },
     row (key) { const row = slots.find((entry) => entry.options.key === key); assert.ok(row, `missing row ${key}`); return row.component },
     dispose () { for (const dispose of disposers.toReversed()) dispose() },
   }
@@ -122,6 +123,20 @@ function assertOriginal (row, original) {
   assert.equal(withClass(row.tree, 'bt_original', true).length, fallback.length ? 1 : 0, 'only explicit native fallback may show complete original by default')
   assert.ok(row.full.includes(expected), 'full error evidence is retained')
 }
+function assertNativeFallback (row, original, { language = 'zh' } = {}) {
+  const expected = [original.code ? `[${original.code}]` : '', original.message].filter(Boolean).join(' ')
+  assert.ok(row.primary.includes(expected), 'native fallback is complete and default-visible')
+  const native = withClass(row.tree, 'bt_nativeFallback')
+  assert.equal(native.length, 1)
+  assert.match(text(native[0]), language === 'en' ? /DSH native error/ : /DSH 原生报错/)
+  assert.equal(withClass(row.tree, 'bt_original').filter((node) => text(node) === expected).length, 1, 'native original is present exactly once, not copied into diagnostics')
+  assert.equal(withClass(row.tree, 'bt_originalControls')[0].children.filter((node) => node?.type === 'pre').length, 1)
+  assert.doesNotMatch(row.primary, /未取得额外网络诊断|额外网络诊断已关闭|额外网络诊断不可用|详情读取失败|候选捕获|加载中|No additional network diagnosis|Additional network diagnosis|Details unavailable|Candidate captures|Loading/)
+  const drawer = withClass(row.tree, 'bt_disclosure')[0] ?? withClass(row.tree, 'bt_attemptNative')[0]
+  assert.ok(drawer, 'fallback keeps a log/diagnostic drawer')
+  assert.match(text(drawer.children[0]), language === 'en' ? /Log location/ : /日志定位/)
+  assertOriginal(row, original)
+}
 function assertCaptureAdvice (row, fragment) {
   const advice = withClass(row.tree, 'bt_captureAdvice')
   assert.ok(advice.length > 0, 'capture-specific advice is available')
@@ -133,9 +148,9 @@ function assertCaptureAdvice (row, fragment) {
 async function renderRow (key, props, {
   response = { items: [], records: [], capture: { installed: true, records: 0 } },
   error, status, pending = false, sessions, clickLog = false, interact, respond, timers, environment, environmentRespond,
-  openDetails = true,
+  openDetails = true, language = 'zh',
 } = {}) {
-  const mounted = mountFactory(sessions)
+  const mounted = mountFactory(sessions, language)
   const originalFetch = globalThis.fetch
   const originalSetTimeout = globalThis.setTimeout
   const originalClearTimeout = globalThis.clearTimeout
@@ -244,7 +259,8 @@ async function renderRow (key, props, {
       assert.equal(buttons.length, 1, 'one log opener per single-record row')
       await click(buttons[0])
     }
-    if (interact) await interact({ get row () { return current }, click, toggle, settle, update, beforeOpen, beforeDisclosure })
+    if (interact) await interact({ get row () { return current }, click, toggle, settle, update, beforeOpen, beforeDisclosure,
+      setLanguage: async (value) => { mounted.setLanguage(value); return settle() } })
     return { ...current, beforeOpen, beforeDisclosure }
   } finally {
     hooks = null
@@ -301,6 +317,158 @@ function assertQuiet (primary) {
   assert.doesNotMatch(primary, /gateway\.example|\/v1\/chat\/completions|Caddy|765432|765\.4|request-debug-id/)
   assert.doesNotMatch(primary, /推测|可能是同一次|例如|捕获器|进程内失败|本轮命中|未捕获|读取失败|正在读取|暂无捕获|连接失败（|没有保留原因/)
 }
+
+const MALFORMED_RESPONSE = {
+  code: 'MALFORMED_RESPONSE',
+  message: 'Tool call "read_image": Unexpected non-whitespace character after JSON at position 34 (line 1 column 35)\n\nReceived arguments:\n'
+    + '{"file_path":"sample/sample1.png"}{"file_path":"sample/sample2.png"}{"file_path":"sample/sample3.png"}{"file_path":"sample/sample4.png"}',
+}
+
+test('MALFORMED_RESPONSE preserves the user four-JSON tool call by default and copies it exactly', async () => {
+  await withClipboard(async (copied) => {
+    await renderRow('turn-error', terminal(MALFORMED_RESPONSE.message, MALFORMED_RESPONSE.code), { openDetails: false, response: details([]), interact: async ({ row, click, toggle }) => {
+      assertNativeFallback(row, MALFORMED_RESPONSE)
+      assertMainAdvice(row, '每次工具调用只传一个完整 JSON 对象')
+      assert.doesNotMatch(row.primary, /代理|网络连接|DNS|HTTP 502/)
+      assert.equal(withClass(row.tree, 'bt_network', true).length, 0)
+      assert.equal(withClass(row.tree, 'bt_networkDetails').length, 0)
+      const button = elements(withClass(row.tree, 'bt_nativeFallback')[0], 'button').find((node) => text(node) === '复制完整错误')
+      await click(button)
+      assert.equal(copied[0], `[MALFORMED_RESPONSE] ${MALFORMED_RESPONSE.message}`)
+      const opened = await toggle(withClass(row.tree, 'bt_disclosure')[0], true)
+      assert.match(opened.visible, /未取得额外网络诊断/)
+      assert.equal(withClass(opened.tree, 'bt_original').filter((node) => text(node) === copied[0]).length, 1)
+    } })
+  })
+})
+
+test('native-only unknown and malformed errors dominate empty, disabled, failed, pending and ambiguous diagnostics', async () => {
+  const unknown = { code: 'UPSTREAM_UNRECOGNIZED', message: 'Unknown protocol failure\n完整原生正文\nthird line: keep verbatim' }
+  for (const raw of [MALFORMED_RESPONSE, unknown]) {
+    for (const options of [
+      {},
+      { response: details([]) },
+      { response: { items: [], capture: { installed: false, reason: 'config-disabled' } } },
+      { response: { items: [], capture: { installed: false, reason: 'install-failed' } } },
+      { error: new Error('fixture fetch failed') },
+      { status: 503 },
+      { pending: true },
+      { response: details([http(499, 'Foreign candidate A'), http(431, 'Foreign candidate B')]) },
+      { response: details([socket()]) }, // One unrelated legacy TRANSPORT capture must not displace native MALFORMED_RESPONSE.
+      { response: details([socket({ failure: raw, event: null })]) },
+    ]) {
+      const props = terminal(raw.message, raw.code)
+      props.node.data.seq = 80
+      const row = await renderRow('turn-error', props, { ...options, openDetails: false })
+      assertNativeFallback(row, raw)
+      if (raw === unknown) assertMainAdvice(row, '展开错误详情，核对请求地址与服务端日志')
+      else assertMainAdvice(row, '每次工具调用只传一个完整 JSON 对象')
+      assert.equal(withClass(row.tree, 'bt_network', true).length, 0)
+      assert.doesNotMatch(row.primary, /ECONNRESET|Foreign candidate|关联未确认|HTTP 499|HTTP 431|fixture fetch failed/)
+      if (options.pending) assert.match(row.full, /加载中/)
+      if (options.error) assert.match(row.full, /fixture fetch failed/)
+    }
+  }
+})
+
+test('empty or malformed recorder objects never suppress the native fallback', async () => {
+  for (const detail of [undefined, {}, { kind: 'response' }, { kind: 'response', status: 0 }, { kind: 'response', status: '502' },
+    { kind: 'response', body: '   ' }, { kind: 'network' }, { kind: 'network', error: {} },
+    { kind: 'stream' }, { kind: 'stream', status: 200 }, { kind: 'stream', error: { message: ' ' } }]) {
+    const row = await renderRow('turn-error', terminal(MALFORMED_RESPONSE.message, MALFORMED_RESPONSE.code), {
+      openDetails: false, response: details([socket({ failure: MALFORMED_RESPONSE, detail })]),
+    })
+    assertNativeFallback(row, MALFORMED_RESPONSE)
+    assert.equal(withClass(row.tree, 'bt_network', true).length, 0)
+  }
+})
+
+test('fallback and its log drawer relocalize without translating raw arguments or reloading capture', async () => {
+  await renderRow('turn-error', terminal(MALFORMED_RESPONSE.message, MALFORMED_RESPONSE.code), { openDetails: false, interact: async ({ row, setLanguage }) => {
+    assertNativeFallback(row, MALFORMED_RESPONSE)
+    const reads = row.calls.length
+    const next = await setLanguage('en')
+    assertNativeFallback(next, MALFORMED_RESPONSE, { language: 'en' })
+    assert.match(next.primary, /Check the model response format and tool-argument JSON/)
+    assert.equal(next.calls.length, reads)
+    assert.ok(next.primary.includes(MALFORMED_RESPONSE.message))
+  } })
+})
+
+test('late capture and manual refresh return fallback to normal capture-first mode without duplicating native text', async () => {
+  const waiting = deferred()
+  const raw = { code: 'SERVER', message: 'complete native text\nsecond line\nthird line' }
+  const capture = http(502, 'Captured after refresh', raw)
+  const first = deferred()
+  await renderRow('turn-error', terminal(raw.message, raw.code), {
+    openDetails: false,
+    respond: (_url, _opts, count) => count === 1 ? first.promise : count === 2 ? waiting.promise : Promise.resolve(jsonResult(details([]))),
+    interact: async ({ row, click, settle, toggle }) => {
+      assertNativeFallback(row, raw)
+      first.resolve(jsonResult(details([])))
+      row = await settle()
+      assertNativeFallback(row, raw)
+      row = await click(withClass(row.tree, 'bt_refresh')[0])
+      assertNativeFallback(row, raw)
+      assert.equal(row.calls.length, 2)
+      waiting.resolve(jsonResult(details([capture])))
+      row = await settle()
+      assert.equal(withClass(row.tree, 'bt_nativeFallback').length, 0)
+      assert.match(row.primary, /Captured after refresh/)
+      assert.ok(!row.visible.includes(raw.message), 'valid capture returns native original to the normal closed disclosure')
+      assert.equal(withClass(row.tree, 'bt_network', true).length, 1)
+      assert.equal(withClass(row.tree, 'bt_networkDetails').length, 1)
+      assert.match(text(withClass(row.tree, 'bt_disclosure')[0].children[0]), /DSH 原生报错/)
+      assertOriginal(row, raw)
+      row = await toggle(withClass(row.tree, 'bt_disclosure')[0], true)
+      assert.ok(row.visible.includes(raw.message))
+      row = await click(withClass(row.tree, 'bt_refresh')[0])
+      assertNativeFallback(row, raw)
+      assert.equal(withClass(row.tree, 'bt_networkDetails').length, 0)
+      assert.equal(row.calls.length, 3)
+    },
+  })
+})
+
+test('mixed retry history applies fallback independently to each durable attempt and never copies current text into history', async () => {
+  const a = { ...retry('older captured error', 'SERVER').node.data.current, seq: 20, retry: 1, attemptId: 'a' }
+  const b = { ...retry(MALFORMED_RESPONSE.message, MALFORMED_RESPONSE.code).node.data.current, seq: 30, retry: 2, attemptId: 'b' }
+  const captures = [http(502, 'Old captured gateway', a.failure, { attemptId: 'a', context: { sessionId: 'session-client-test', provider: 'test-provider', attemptId: 'a' } })]
+  await renderRow('model-retry', { ...retry(), node: { data: { attempts: [a, b], current: b } } }, {
+    openDetails: false, response: details(captures), interact: async ({ row, toggle }) => {
+      assertNativeFallback(row, b.failure)
+      assert.doesNotMatch(row.primary, /Old captured gateway|older captured error/)
+      assert.match(row.primary, /更早的报错 · 1/)
+      assertMainAdvice(row, '每次工具调用只传一个完整 JSON 对象')
+      row = await toggle(withClass(row.tree, 'bt_earlierErrors')[0], true)
+      row = await toggle(withClass(row.tree, 'bt_earlierError')[0], true)
+      const own = (seq) => withClass(row.tree, 'bt_attempt').find((node) => node.props.key === seq)
+      assert.equal(withClass(own(20), 'bt_nativeFallback').length, 0)
+      assert.match(text(withClass(own(20), 'bt_primary')), /Old captured gateway/)
+      assert.ok(!text(own(20)).includes(MALFORMED_RESPONSE.message))
+      assert.match(text(withClass(own(20), 'bt_attemptNative')[0].children[0]), /DSH 原生报错/)
+      assert.equal(withClass(own(30), 'bt_nativeFallback').length, 1)
+      assert.match(text(withClass(own(30), 'bt_attemptNative')[0].children[0]), /日志定位/)
+      assert.equal(withClass(own(30), 'bt_original').filter((node) => text(node) === `[MALFORMED_RESPONSE] ${MALFORMED_RESPONSE.message}`).length, 1)
+      assert.ok(!row.visible.includes('未取得额外网络诊断'))
+    },
+  })
+})
+
+test('retry native fallback stays visible across pending, unavailable and tentative capture states', async () => {
+  for (const options of [
+    { pending: true }, { response: details([]) }, { response: { items: [], capture: { installed: false, reason: 'config-disabled' } } },
+    { error: new Error('retry diagnostic offline') }, { response: details([socket()]) },
+    { response: details([socket({ failure: MALFORMED_RESPONSE, approximate: true })]) },
+  ]) {
+    const row = await renderRow('model-retry', retry(MALFORMED_RESPONSE.message, MALFORMED_RESPONSE.code), { ...options, openDetails: false })
+    assertNativeFallback(row, MALFORMED_RESPONSE)
+    assert.match(row.primary, /2\/5.*987 ms/)
+    assert.doesNotMatch(row.primary, /ECONNRESET|retry diagnostic offline|关联未确认/)
+    assertMainAdvice(row, '每次工具调用只传一个完整 JSON 对象')
+    assert.equal(withClass(row.tree, 'bt_networkDetails', true).length, 0)
+  }
+})
 
 test('advice and report follow capture; raw details and native error are sibling disclosures', async () => {
   const row = await renderRow('turn-error', terminal(), { openDetails: false, response: reportPayload() })
@@ -525,6 +693,101 @@ test('consecutive error nodes fold older blocks lazily and reset when a newer er
   assert.equal(latest.calls.length, 1, 'latest error keeps normal capture behavior')
 })
 
+test('latest error can collapse to a red latest-error summary and reopen using native details', async () => {
+  const node = { ...terminal().node, key: 'latest', kind: 'turn-error', visibility: 'visible' }
+  const useChat = (selector) => selector({ order: [node.key], nodes: new Map([[node.key, node]]) })
+  await renderRow('turn-error', { ...terminal(), node, useChat }, { openDetails: false, response: details([socket()]), interact: async ({ row, toggle, update }) => {
+    const latest = withClass(row.tree, 'bt_latestNode')[0]
+    assert.equal(latest.type, 'details')
+    assert.equal(latest.props.open, true, 'latest error defaults expanded')
+    assert.equal(latest.children[0].type, 'summary', 'native summary provides keyboard activation')
+    assert.equal(text(withClass(latest.children[0], 'bt_latestLabel')[0]), '最新的报错')
+    assert.match(row.visible, /ECONNRESET/)
+    row = await toggle(latest, false)
+    assert.equal(withClass(row.tree, 'bt_latestNode')[0].props.open, false)
+    assert.match(row.visible, /最新的报错/)
+    assert.doesNotMatch(row.visible, /ECONNRESET|一键复制排障报告|DSH 原生报错/)
+    row = await update({ ...terminal(), node: { ...node }, useChat })
+    assert.equal(withClass(row.tree, 'bt_latestNode')[0].props.open, false, 'same error retains the manual collapse')
+    row = await toggle(withClass(row.tree, 'bt_latestNode')[0], true)
+    assert.match(row.visible, /ECONNRESET/)
+    assert.equal(row.calls.length, 2, 'reopening remounts one bounded evidence read')
+  } })
+})
+
+test('latest error ignores nested toggle and cancels pending evidence when manually collapsed', async () => {
+  const node = { ...terminal().node, key: 'pending-latest', kind: 'turn-error', visibility: 'visible' }
+  const waiting = deferred()
+  await renderRow('turn-error', { ...terminal(), node }, { openDetails: false, respond: () => waiting.promise, interact: async ({ row, toggle, settle }) => {
+    const outer = withClass(row.tree, 'bt_latestNode')[0]
+    outer.props.onToggle({ target: {}, currentTarget: { open: false } })
+    row = await settle()
+    assert.equal(withClass(row.tree, 'bt_latestNode')[0].props.open, true, 'nested native/detail events do not close latest error')
+    row = await toggle(withClass(row.tree, 'bt_latestNode')[0], false)
+    assert.equal(row.calls[0].options.signal.aborted, true)
+    waiting.resolve(jsonResult(details([socket()])))
+    row = await settle()
+    assert.equal(withClass(row.tree, 'bt_latestNode')[0].props.open, false)
+    assert.doesNotMatch(row.full, /ECONNRESET|一键复制排障报告/)
+  } })
+})
+
+test('a new latest error identity expands by default while its predecessor stays historical', async () => {
+  const first = { ...terminal().node, key: 'shared', id: 'first', kind: 'turn-error', visibility: 'visible' }
+  let nodes = [first]
+  const useChat = (selector) => selector({ order: nodes.map((node) => node.key), nodes: new Map(nodes.map((node) => [node.key, node])) })
+  await renderRow('turn-error', { ...terminal(), node: first, useChat }, { openDetails: false, response: details([socket()]), interact: async ({ row, toggle, update }) => {
+    row = await toggle(withClass(row.tree, 'bt_latestNode')[0], false)
+    const replacement = { ...first, id: 'second', data: { ...first.data, message: 'new failure', seq: 44 } }
+    nodes = [replacement]
+    row = await update({ ...terminal(), node: replacement, useChat })
+    assert.equal(withClass(row.tree, 'bt_latestNode')[0].props.open, true, 'replacement at the same key starts expanded')
+    const successor = { ...replacement, key: 'new-latest', id: 'third', data: { ...replacement.data, seq: 45 } }
+    nodes = [replacement, successor]
+    row = await update({ ...terminal(), node: replacement, useChat })
+    assert.equal(withClass(row.tree, 'bt_earlierNode')[0].props.open, false, 'predecessor becomes collapsed history')
+    row = await update({ ...terminal(), node: successor, useChat })
+    assert.equal(withClass(row.tree, 'bt_latestNode')[0].props.open, true)
+    row = await toggle(withClass(row.tree, 'bt_latestNode')[0], false)
+    row = await update({ ...terminal(), sessionId: 'another-session', node: successor, useChat })
+    assert.equal(withClass(row.tree, 'bt_latestNode')[0].props.open, true, 'session identity cannot inherit a manual collapse')
+  } })
+})
+
+test('latest retry and compaction errors all support manual collapse without folding successful compaction', async () => {
+  for (const [key, props, response] of [
+    ['model-retry', retry(), details([socket()])],
+    ['better-tips-compaction', autoFailure, compactions()],
+    ['manual-compaction', manualFailure, compactions()],
+  ]) {
+    const node = { ...props.node, key: key + '-latest', kind: key, visibility: 'visible' }
+    const useChat = (selector) => selector({ order: [node.key], nodes: new Map([[node.key, node]]) })
+    await renderRow(key, { ...props, node, useChat }, { openDetails: false, response, interact: async ({ row, toggle, update }) => {
+      assert.equal(withClass(row.tree, 'bt_latestNode')[0].props.open, true, key)
+      row = await toggle(withClass(row.tree, 'bt_latestNode')[0], false)
+      assert.match(row.visible, /最新的报错/)
+      assert.doesNotMatch(row.visible, /ECONNRESET|一键复制排障报告/)
+      if (key === 'model-retry') {
+        const changed = { ...node, data: { ...node.data, current: { ...node.data.current, seq: 98, retry: 3 } } }
+        row = await update({ ...props, node: changed, useChat })
+        assert.equal(withClass(row.tree, 'bt_latestNode')[0].props.open, true, 'next retry is a new latest failure')
+      }
+    } })
+  }
+  const success = await renderRow('manual-compaction', { sessionId: 'success', node: { key: 'success', kind: 'manual-compaction', data: { command: { outcome: { kind: 'success' } }, compaction: { beforeTokens: 100, afterTokens: 20 } } } }, { openDetails: false })
+  assert.equal(withClass(success.tree, 'bt_latestNode').length, 0)
+})
+
+test('latest collapse styling uses the error theme token and includes an English label', () => {
+  assert.equal(client.locale.dictionaries.en['ui.latestBlock'], 'Latest error')
+  const previous = document.head.appendChild
+  let css = ''
+  document.head.appendChild = (element) => { css = element.textContent }
+  try { mountFactory().dispose() } finally { document.head.appendChild = previous }
+  assert.match(css, /\.bt_latestLabel\{color:var\(--dsw-alias-state-error-primary\)/)
+  assert.match(css, /\.bt_latestNode>summary:focus-visible\{outline:2px solid var\(--dsw-alias-state-error-primary\)/)
+})
+
 test('earlier retries fold by stable record identity while newest record stays visible', async () => {
   const attempts = [1, 2, 3].map((retryNumber) => ({ ...retry('native-' + retryNumber).node.data.current, seq: retryNumber * 10, retry: retryNumber, attemptId: 'a' + retryNumber }))
   const captures = attempts.map((attempt, index) => http(503, 'capture-' + (index + 1), attempt.failure, { attemptId: attempt.attemptId, context: { sessionId: 'session-client-test', provider: 'test-provider', attemptId: attempt.attemptId } }))
@@ -634,14 +897,16 @@ test('default capture preserves deepest code while complete evidence and native 
   assert.match(row.calls[0].url, /^api\/better-tips\/details\?/)
 })
 
-test('native multiline original is not excerpted and opens in one native disclosure', async () => {
+test('native multiline original stays default-visible only without a displayable capture', async () => {
   const original = 'Connection error.\nprovider diagnostic: keep this line'
   const capture = socket({ failure: { code: 'TRANSPORT', message: original } })
   for (const response of [details([]), details([capture])]) {
     await renderRow('turn-error', terminal(original), { openDetails: false, response, interact: async ({ row, toggle }) => {
       assertOriginal(row, { code: 'TRANSPORT', message: original })
       assert.equal(withClass(row.tree, 'bt_preview').length, 0)
-      assert.doesNotMatch(row.visible, /provider diagnostic|摘要 ·/)
+      if (response.items.length) assert.doesNotMatch(row.visible, /provider diagnostic/)
+      else assert.ok(row.visible.includes(original), 'native fallback shows every original line without expanding')
+      assert.doesNotMatch(row.visible, /摘要 ·/)
       const next = await toggle(withClass(row.tree, 'bt_disclosure')[0], true)
       assert.ok(next.visible.includes(original))
       assert.equal(next.calls.length, 1)
@@ -679,7 +944,9 @@ test('exact matching includes step and original failure, never a neighboring att
   assert.match(text(withClass(second.tree, 'bt_primary')), /HTTP\s*431/)
   assert.doesNotMatch(text(withClass(second.tree, 'bt_primary')), /504/)
   const other = await renderRow('turn-error', terminal(), { response: details([socket({ step: 8 })]) })
-  assert.match(other.primary, /未取得额外网络诊断/)
+  assert.match(other.primary, /\[TRANSPORT\] Connection error\./)
+  assert.doesNotMatch(other.primary, /未取得额外网络诊断/)
+  assert.match(other.full, /未取得额外网络诊断/)
   assert.doesNotMatch(other.primary, /ECONNRESET/)
 })
 
@@ -713,7 +980,8 @@ test('one non-exact capture has only the short unconfirmed marker, never specula
   const row = await renderRow('model-retry', retry(), { response: details([http(499, 'Client Closed Request')]) })
   assert.match(row.full, /HTTP\s*499/)
   assert.match(row.full, /关联未确认/)
-  assert.match(row.primary, /HTTP\s*499.*关联未确认|关联未确认.*HTTP\s*499/)
+  assert.doesNotMatch(row.primary, /HTTP\s*499|关联未确认/)
+  assertNativeFallback(row, failure)
   assertQuiet(row.primary)
   assert.doesNotMatch(row.full, /可能是同一次|例如我们|只有这一条捕获|与本行的.*不同|无法证实/)
   assert.match(row.full, /Connection error\./)
@@ -722,8 +990,9 @@ test('one non-exact capture has only the short unconfirmed marker, never specula
 
 test('multiple unmatched captures stay candidates in details; raw row failure stays primary', async () => {
   const row = await renderRow('model-retry', retry(), { response: details([http(499, 'Client Closed Request'), http(431, 'Request Header Fields Too Large')]) })
-  assert.doesNotMatch(row.primary, /Connection error\.|TRANSPORT|HTTP\s*(499|431)/)
-  assert.match(row.primary, /候选捕获/)
+  assert.match(row.primary, /\[TRANSPORT\] Connection error\./)
+  assert.doesNotMatch(row.primary, /HTTP\s*(499|431)|候选捕获/)
+  assert.match(row.full, /候选捕获/)
   assert.match(row.full, /499/)
   assert.match(row.full, /431/)
   assert.match(row.full, /候选|另一次|candidate/i)
@@ -738,11 +1007,12 @@ test('loading, empty capture and API failure never displace the primary error', 
     { key: 'ui.loadFailed', options: { error: new Error('offline-test-marker') } },
   ]) {
     const row = await renderRow('turn-error', terminal(), options)
-    assert.doesNotMatch(row.primary, /Connection error\.|TRANSPORT/)
+    assert.match(row.primary, /\[TRANSPORT\] Connection error\./)
     assertOriginal(row, failure)
     const marker = client.t(key, { message: '', error: '' }).replace(/\{[^{}]+\}/g, '').trim()
     assert.ok(row.full.includes(marker), `${key} should be available in details`)
-    assert.equal(row.primary.includes(marker), true, `${key} is honestly visible without fabricated capture`)
+    assert.equal(row.primary.includes(marker), false, `${key} belongs only to diagnostic details, never the primary native failure`)
+    assert.ok(text(withClass(row.tree, 'bt_disclosure')[0]).includes(marker))
     if (options.status) assert.match(row.full, /HTTP\s*401/)
     if (options.error) assert.match(row.full, /offline-test-marker/)
   }
@@ -925,7 +1195,8 @@ test('compaction selects final max-tokens or incomplete attempt without reviving
 
 test('compaction without capture falls back to raw error, with evidence status only in details', async () => {
   const auto = await renderRow('better-tips-compaction', { ...autoFailure, node: { data: { ...autoFailure.node.data, error: 'summarization truncated at the token cap (incomplete checkpoint)' } } }, { response: compactions([]) })
-  assert.match(auto.primary, /未取得额外网络诊断/)
+  assert.doesNotMatch(auto.primary, /未取得额外网络诊断/)
+  assert.match(auto.full, /未取得额外网络诊断/)
   assert.match(auto.primary, /MAX_TOKENS/)
   assert.equal(withClass(auto.tree, 'bt_nativeFallback').length, 1)
   assert.equal(withClass(auto.tree, 'bt_network', true).length, 0)
@@ -933,7 +1204,8 @@ test('compaction without capture falls back to raw error, with evidence status o
   assertMainAdvice(auto, '摘要输出 token 上限')
   assertQuiet(auto.primary)
   const manual = await renderRow('manual-compaction', manualFailure, { response: compactions([]) })
-  assert.match(manual.primary, /未取得额外网络诊断/)
+  assert.doesNotMatch(manual.primary, /未取得额外网络诊断/)
+  assert.match(manual.full, /未取得额外网络诊断/)
   assert.ok(manual.primary.includes(manualFailure.node.data.command.outcome.text))
   assertOriginal(manual, { message: manualFailure.node.data.command.outcome.text })
   assertMainAdvice(manual, '展开错误详情，核对请求地址与服务端日志。')
@@ -1105,7 +1377,9 @@ test('unconfirmed HTTP401 capture cannot change original TRANSPORT main advice',
     const row = await renderRow('turn-error', terminal(), { response: details([capture]) })
     assert.equal(assertMainAdvice(row), expected)
     assert.doesNotMatch(assertMainAdvice(row), /API 密钥/)
-    assert.match(row.primary, /HTTP 401 Unauthorized|关联未确认/)
+    assert.doesNotMatch(row.primary, /HTTP 401 Unauthorized|关联未确认/)
+    assertNativeFallback(row, failure)
+    assert.match(row.full, /HTTP 401 Unauthorized|关联未确认/)
     assertCaptureAdvice(row, 'API 密钥')
     assertOriginal(row, failure)
   }
@@ -1418,11 +1692,43 @@ test('same-code/message attempts are candidates without identity; unique near ti
   assert.doesNotMatch(tie.primary, /ECONNRESET|EPIPE/)
 })
 
+test('native event coordinates confirm identical retry and terminal captures without time matching', async () => {
+  const captures = [10, 20, 30].map((seq, index) => socket({
+    attemptId: 'event-' + seq, context: { sessionId: 'session-client-test', provider: 'test-provider', attemptId: 'event-' + seq },
+    event: { seq, kind: index < 2 ? 'retry' : 'terminal', turn: 9, step: 3 },
+    detail: { kind: 'network', error: { code: index < 2 ? 'ECONNRESET' : 'ENOTFOUND', message: 'event-' + seq } },
+  }))
+  const props = retry()
+  props.node.data.current.seq = 20
+  props.node.data.current.time = -99999 // Identity, not clock proximity.
+  const row = await renderRow('model-retry', props, { response: details(captures) })
+  assert.match(text(withClass(row.tree, 'bt_primary')), /event-20/)
+  assert.doesNotMatch(row.full, /关联未确认|候选捕获/)
+  const terminalProps = terminal()
+  terminalProps.node.anchorSeq = 30
+  const final = await renderRow('turn-error', terminalProps, { response: details(captures) })
+  assert.doesNotMatch(final.full, /关联未确认|候选捕获/)
+  assertMainAdvice(final, 'API 域名')
+  for (const patch of [{ seq: 21 }, { turn: 10 }, { step: 4 }, { kind: 'terminal' }]) {
+    const inconsistent = captures.map((item) => item.event.seq === 20 ? { ...item, event: { ...item.event, ...patch } } : item)
+    const rejected = await renderRow('model-retry', props, { response: details(inconsistent) })
+    assert.match(rejected.full, /候选捕获/)
+    assertMainAdvice(rejected, '查看会话日志')
+  }
+  const unresolved = await renderRow('turn-error', terminalProps, { response: details([socket({ event: null })]) })
+  assert.match(unresolved.full, /候选捕获/)
+  assertMainAdvice(unresolved, '查看会话日志')
+  const foreign = captures.map((item) => ({ ...item, context: { ...item.context, sessionId: 'foreign' } }))
+  const rejected = await renderRow('model-retry', props, { response: details(foreign) })
+  assert.match(rejected.full, /关联未确认/)
+})
+
 test('legacy evidence never confirms itself and foreign request context stays unconfirmed', async () => {
   for (const capture of [socket({ provenance: undefined }), socket({ context: { sessionId: 'other-session' } })]) {
     const row = await renderRow('turn-error', terminal(), { response: details([capture]) })
     assert.match(row.full, /关联未确认/)
-    assert.match(row.primary, /关联未确认/)
+    assert.doesNotMatch(row.primary, /关联未确认/)
+    assertNativeFallback(row, failure)
     assert.doesNotMatch(assertMainAdvice(row), /检查代理与上游连接/)
   }
 })
@@ -1458,7 +1764,7 @@ test('evidence timeout is recoverable and aborts the pending fetch', async () =>
       assert.equal(callbacks.size, 1)
       callbacks.values().next().value()
       const next = await settle()
-      assert.match(next.full, /Request timeout/)
+      assert.match(next.full, /请求超时/)
       assert.ok(withClass(next.tree, 'bt_refresh').length)
       assertOriginal(next, failure)
     },
@@ -1625,12 +1931,13 @@ test('failed rows request capture once on mount while successful compaction rema
   }
 })
 
-test('long Unicode native original opens completely in one layer and copies unchanged', async () => {
+test('long Unicode native fallback is default-visible completely and copies unchanged', async () => {
   await withClipboard(async (copied) => {
     const message = '😀'.repeat(170) + '\nsecond line must survive copying'
     await renderRow('turn-error', terminal(message), { openDetails: false, interact: async ({ row, toggle, click }) => {
       assert.equal(withClass(row.tree, 'bt_preview').length, 0)
-      assert.doesNotMatch(row.primary, /摘要 ·|second line|😀/)
+      assert.doesNotMatch(row.primary, /摘要 ·/)
+      assert.ok(row.primary.includes(message), 'unabridged Unicode original is the fallback primary')
       assert.equal(row.calls.length, 1)
       const expanded = await toggle(withClass(row.tree, 'bt_disclosure')[0], true)
       assertOriginal(expanded, { code: 'TRANSPORT', message })
@@ -1655,7 +1962,8 @@ test('durable mixed retry records remain chronological even without volatile cap
   assert.match(row.primary, /更早的报错 · 2/)
   assert.doesNotMatch(row.primary, /重试记录 · 3|类别概览|本组包含不同错误/)
   assert.doesNotMatch(row.primary, /→|↔|⇒|->/)
-  assert.doesNotMatch(row.primary, /first endpoint failed|429 insufficient_quota/)
+  assert.match(row.primary, /\[TRANSPORT\] first endpoint failed/)
+  assert.doesNotMatch(row.primary, /429 insufficient_quota/)
   assert.match(assertMainAdvice(row), /查看会话日志/)
   assert.equal(withClass(row.tree, 'bt_history').length, 1)
   const records = withClass(row.tree, 'bt_attempt')
@@ -1663,9 +1971,10 @@ test('durable mixed retry records remain chronological even without volatile cap
   assert.deepEqual(records.map((record) => record.props.key), [63, 41, 52])
   assert.deepEqual(records.toSorted((a, b) => a.props.key - b.props.key).map((record) => text(withClass(record, 'bt_original')[0])), attempts.map((attempt) => `[${attempt.failure.code}] ${attempt.failure.message}`))
   assert.ok(records.every((record) => record.type === 'div'))
-  assert.ok(withClass(row.tree, 'bt_attemptNative').every((record) => !record.props.open), 'each native original stays independently folded')
-  assert.match(row.visible, /未取得额外网络诊断/)
-  assert.doesNotMatch(row.visible, /复制完整错误|first endpoint failed|429 insufficient_quota/)
+  assert.ok(withClass(row.tree, 'bt_attemptNative').every((record) => !record.props.open), 'each log/diagnosis drawer remains independently folded')
+  assert.doesNotMatch(row.visible, /未取得额外网络诊断|429 insufficient_quota/)
+  assert.match(row.visible, /复制完整错误/)
+  assert.ok(row.visible.includes('[TRANSPORT] first endpoint failed'))
   assert.equal(withClass(row.tree, 'bt_reportCopy', true).length, 1, 'only latest report is outside earlier-error disclosures')
   assert.equal(row.calls.length, 1, 'one outer history read, not one API per durable attempt')
 })
@@ -1771,7 +2080,9 @@ test('closing native original does not abort pending capture; refresh cancels st
       let next = await toggle(withClass(row.tree, 'bt_disclosure')[0], true)
       next = await toggle(withClass(next.tree, 'bt_disclosure')[0], false)
       assert.equal(next.calls[0].options.signal.aborted, false)
-      assert.match(next.visible, /加载中/)
+      assert.doesNotMatch(next.visible, /加载中/)
+      assert.match(next.visible, /\[TRANSPORT\] Connection error\./)
+      assert.match(next.full, /加载中/)
       next = await click(withClass(next.tree, 'bt_refresh')[0])
       assert.equal(next.calls.length, 2)
       assert.equal(next.calls[0].options.signal.aborted, true)
@@ -1881,7 +2192,8 @@ test('structured long native JSON remains complete with no native excerpt and co
     const message = '503: ' + JSON.stringify({ error: { message: 'literal provider '.repeat(40) + '\nfull second diagnostic line', type: 'overloaded_error', extra: 'opaque evidence preserved' } })
     await renderRow('turn-error', terminal(message, 'SERVER'), { interact: async ({ row, click }) => {
       assert.equal(withClass(row.tree, 'bt_preview').length, 0)
-      assert.doesNotMatch(row.primary, /opaque evidence|full second diagnostic|overloaded_error|摘要/)
+      assert.doesNotMatch(row.primary, /摘要/)
+      assert.ok(row.primary.includes(message), 'structured JSON stays complete in primary native fallback')
       assertOriginal(row, { code: 'SERVER', message })
       assert.ok(row.visible.includes(message))
       await click(elements(row.tree, 'button').find((node) => text(node) === '复制完整错误'))
@@ -1914,7 +2226,8 @@ test('complete native JSON is never decoded or shortened in its single native di
     const message = `503: ${JSON.stringify(body)}`
     await renderRow('turn-error', terminal(message, 'SERVER'), { openDetails: false, interact: async ({ row, toggle }) => {
       assert.equal(withClass(row.tree, 'bt_preview').length, 0)
-      assert.doesNotMatch(row.visible, /真实供应商首行|top-level literal message|摘要/)
+      assert.doesNotMatch(row.visible, /摘要/)
+      assert.ok(row.visible.includes(message), 'native-only JSON is visible verbatim before opening details')
       assertOriginal(row, { code: 'SERVER', message })
       const next = await toggle(withClass(row.tree, 'bt_disclosure')[0], true)
       assert.equal(text(withClass(next.tree, 'bt_original')[0]), '[SERVER] ' + message)
@@ -2312,6 +2625,95 @@ test('upstream response truncation remains explicit independently of short-repor
       assert.match(row.full, /响应正文已截断/)
     } })
   })
+})
+
+test('DSH locale changes update mounted error controls and reports without refetching or translating evidence', async () => {
+  assert.ok(client.slots.every((entry) => entry.options.locale === 'better-tips'), 'DSH Slot LocaleFace owns language updates for all five renderers')
+  await withClipboard(async (copied) => {
+    const props = terminal('原始上游错误 upstream error')
+    props.node.kind = 'turn-error'; props.node.key = 'locale-error'; props.node.data.time = 1794707684000
+    await renderRow('turn-error', props, { response: reportPayload(), openDetails: false, interact: async ({ row, setLanguage, click, toggle }) => {
+      assert.match(row.full, /最新的报错|一键复制排障报告/)
+      const reads = row.calls.length
+      let next = await setLanguage('en')
+      assert.match(next.full, /Latest error/)
+      assert.match(next.full, /DSH native error/)
+      assert.match(next.full, /Underlying raw details/)
+      assert.match(next.full, /Copy troubleshooting report/)
+      assert.match(next.full, /原始上游错误 upstream error/)
+      assert.equal(next.calls.length, reads)
+      next = await click(withClass(next.tree, 'bt_reportCopy')[0])
+      assert.match(copied[0], /Enabled third-party plugins/)
+      assert.match(copied[0], /DSH native error: \[TRANSPORT\] 原始上游错误 upstream error/)
+      assert.ok(copied[0].includes(new Date(props.node.data.time).toLocaleString('en-US', { hour12: false })))
+      assert.match(next.full, /Copied/)
+      next = await toggle(withClass(next.tree, 'bt_latestNode')[0], false)
+      next = await setLanguage('zh')
+      assert.match(next.visible, /最新的报错/)
+      assert.equal(withClass(next.tree, 'bt_latestNode')[0].props.open, false, 'switching language preserves manual collapse')
+      next = await toggle(withClass(next.tree, 'bt_latestNode')[0], true)
+      await click(withClass(next.tree, 'bt_reportCopy')[0])
+      assert.match(copied[1], /已启用第三方插件/)
+      assert.ok(copied[1].includes(new Date(props.node.data.time).toLocaleString('zh-CN', { hour12: false })))
+    } })
+  })
+})
+
+test('all retry and compaction renderers use the active English dictionary', async () => {
+  for (const [key, props, expected] of [
+    ['model-retry', retry(), /Retried/],
+    ['compaction', { sessionId: 's', node: { data: { shadowedItemCount: 2, shadowedTokenCount: 30 } } }, /Context compacted/],
+    ['manual-compaction', { sessionId: 's', node: { data: { command: { outcome: { kind: 'error', text: 'native compaction failure' } } } } }, /Compaction failed/],
+    ['better-tips-compaction', { sessionId: 's', node: { data: { error: 'native compaction failure' } } }, /Automatic compaction failed/],
+  ]) {
+    const row = await renderRow(key, props, { language: 'en', openDetails: false })
+    assert.match(row.full, expected)
+    assert.doesNotMatch(row.full, /排查|压缩失败|上下文已压缩|一键复制排障报告/)
+  }
+})
+
+test('timeout messages relocalize without restarting the failed request', async () => {
+  const callbacks = new Map(); let id = 0
+  await renderRow('turn-error', terminal(), { pending: true,
+    timers: { set: (fn) => { callbacks.set(++id, fn); return id }, clear: (value) => callbacks.delete(value) },
+    interact: async ({ settle, setLanguage }) => {
+      callbacks.values().next().value()
+      let row = await settle()
+      assert.match(row.full, /请求超时/)
+      const reads = row.calls.length
+      row = await setLanguage('en')
+      assert.match(row.full, /Request timeout/)
+      assert.doesNotMatch(row.full, /请求超时/)
+      assert.equal(row.calls.length, reads)
+    },
+  })
+})
+
+test('language switch cancels pending reports and clears old-language clipboard fallback', async () => {
+  await withClipboard(async (copied) => {
+    const waiting = deferred()
+    await renderRow('turn-error', terminal(), { response: reportPayload(), environmentRespond: () => waiting.promise,
+      interact: async ({ row, settle, setLanguage }) => {
+        const task = withClass(row.tree, 'bt_reportCopy')[0].props.onClick()
+        await settle()
+        const next = await setLanguage('en')
+        assert.equal(next.environmentCalls[0].options.signal.aborted, true)
+        waiting.resolve(jsonResult({ runtime: {} }))
+        await task; await settle()
+        assert.equal(copied.length, 0)
+      },
+    })
+  })
+  await withClipboard(async () => {
+    await renderRow('turn-error', terminal(), { response: reportPayload(), interact: async ({ row, click, setLanguage }) => {
+      let next = await click(withClass(row.tree, 'bt_reportCopy')[0])
+      assert.match(text(withClass(next.tree, 'bt_reportText')), /DSH 原生报错/)
+      next = await setLanguage('en')
+      assert.equal(withClass(next.tree, 'bt_reportText').length, 0)
+      next = await click(withClass(next.tree, 'bt_reportCopy')[0])
+      assert.match(text(withClass(next.tree, 'bt_reportText')), /DSH native error/)
+    } })
+  }, async () => { throw new Error('clipboard denied') })
 })
 
 test('changing current row aborts a pending report and cannot copy old-session output', async () => {

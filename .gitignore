@@ -7,9 +7,21 @@
 !/cordis.patch.yml
 !/icon.svg
 !/README.md
+!/README_EN.md
 !/CHANGELOG.md
 !/RELEASE_NOTES.md
 !/LICENSE
+
+!/sample/
+/sample/*
+!/sample/sample1.png
+!/sample/sample2.png
+!/sample/sample3.png
+!/sample/sample4.png
+!/sample/sample5.png
+!/sample/sample6.png
+!/sample/sample7.png
+!/sample/sample8.png
 
 !/lib/
 /lib/*

@@ -27,7 +27,7 @@ window.__ModuleLoader__.load({
       'compact.attempt': '尝试 {index}',
       'ui.expand': '错误详情', 'ui.original': 'DSH 原生报错', 'ui.network': '插件捕获的底层报错',
       'ui.nativeExcerpt': 'DSH 原生报错 · 摘要', 'ui.overviewSource': '插件整理 · 重试概览', 'ui.open': '展开', 'ui.close': '收起',
-      'ui.earlierErrors': '更早的报错 · {count}', 'ui.earlierBlock': '更早的报错',
+      'ui.earlierErrors': '更早的报错 · {count}', 'ui.earlierBlock': '更早的报错', 'ui.latestBlock': '最新的报错',
       'ui.history': '重试记录 · {count}', 'ui.record': '失败记录 {index}',
       'ui.categoryOverview': '类别概览', 'ui.different': '{count} 类错误',
       'ui.attempts': '请求尝试 · {count}', 'ui.logSection': '日志定位',
@@ -68,7 +68,7 @@ window.__ModuleLoader__.load({
       'compact.attempt': 'Attempt {index}',
       'ui.expand': 'Error details', 'ui.original': 'DSH native error', 'ui.network': 'Plugin-captured underlying error',
       'ui.nativeExcerpt': 'DSH native error · excerpt', 'ui.overviewSource': 'Plugin summary · retries', 'ui.open': 'Expand', 'ui.close': 'Collapse',
-      'ui.earlierErrors': 'Earlier errors · {count}', 'ui.earlierBlock': 'Earlier error',
+      'ui.earlierErrors': 'Earlier errors · {count}', 'ui.earlierBlock': 'Earlier error', 'ui.latestBlock': 'Latest error',
       'ui.history': 'Retry history · {count}', 'ui.record': 'Failure record {index}',
       'ui.categoryOverview': 'Category overview', 'ui.different': '{count} error categories',
       'ui.attempts': 'Request attempts · {count}', 'ui.logSection': 'Log location',
@@ -128,6 +128,7 @@ window.__ModuleLoader__.load({
       empty: ['检查上游返回内容、流式协议及模型接口兼容性。', 'Check upstream output, streaming protocol and model API compatibility.'],
       tokens: ['核对摘要输出 token 上限及模型限制。', 'Check the summary output-token cap and model limits.'],
       stream: ['核对流式响应中断时的代理与上游日志。', 'Check proxy and upstream logs at the stream interruption.'],
+      malformed: ['核对模型输出格式与工具参数 JSON；每次工具调用只传一个完整 JSON 对象。', 'Check the model response format and tool-argument JSON; send one complete JSON object per tool call.'],
       tools: ['核对工具服务与会话生命周期；保留堆栈排查失效上下文。', 'Check tool services and session lifecycle; retain the stack for inactive-context diagnosis.'],
     }
     zh['ui.advice'] = '排查'
@@ -149,6 +150,7 @@ window.__ModuleLoader__.load({
       QUOTA: 'quota', ACCOUNT_QUOTA: 'quota', CONTEXT_WINDOW_EXCEEDED: 'context',
       IMAGE_OFFLOAD_REQUIRED: 'image', INVALID_MODEL: 'model', INVALID_CONFIG: 'config', NO_ADAPTER: 'adapter',
       ABORTED: 'aborted', INTERRUPTED: 'aborted', TIMEOUT: 'timeout', ETIMEDOUT: 'timeout',
+      MALFORMED_RESPONSE: 'malformed',
       TRANSPORT: 'transport', SERVER: 'server', EMPTY_RESPONSE: 'empty', RATE_LIMIT: 'rateLimit', MAX_TOKENS: 'tokens',
       context_length_exceeded: 'context', insufficient_quota: 'quota', invalid_api_key: 'unauthorized',
       authentication_error: 'unauthorized', permission_error: 'forbidden', model_not_found: 'model',
@@ -187,6 +189,15 @@ window.__ModuleLoader__.load({
       'log.producer': 'Error producer', 'log.classifier': 'Error classifier',
       'log.logical': 'Locate by seq, not file line number; compressed logs require decoding.',
     })
+    Object.assign(zh, {
+      'format.locale': 'zh-CN', 'format.list': '、', 'format.params': '；',
+      'ui.requestTimeout': '请求超时',
+    })
+    Object.assign(en, {
+      'format.locale': 'en-US', 'format.list': ', ', 'format.params': '; ',
+      'ui.requestTimeout': 'Request timeout',
+    })
+    const diagnosticProblem = (value, t) => value === 'request-timeout' ? t('ui.requestTimeout') : text(value)
     let sessionService
     const CSS = [
       '.bt_errorGroup{margin:8px 0;padding:2px 0 4px 12px;border-left:2px solid var(--dsw-alias-state-error-primary);display:grid;gap:4px;font-size:var(--dsh-content-font-size-secondary,13px);line-height:1.65;min-width:0}',
@@ -238,6 +249,7 @@ window.__ModuleLoader__.load({
       '.bt_heading{margin-bottom:5px}.bt_original{font-size:12px}.bt_toggleLabel[hidden]{display:none}',
       '.bt_earlierNode{border-left:0;padding-left:0}.bt_earlierNode>.bt_depth,.bt_earlierErrors>.bt_depth,.bt_earlierError>.bt_depth{border-left:0;margin-left:0;padding-left:0}',
       '.bt_earlierNode>summary{display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none;font-size:12px;color:var(--dsw-alias-label-secondary)}.bt_earlierNode>summary::-webkit-details-marker{display:none}.bt_earlierNode>summary:focus-visible{outline:2px solid var(--dsw-alias-state-error-primary);outline-offset:2px}',
+      '.bt_latestNode{border-left:0;padding-left:0}.bt_latestNode>.bt_depth{border-left:0;margin-left:0;padding-left:0}.bt_latestNode>summary{display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none;min-height:28px;font-size:12px}.bt_latestNode>summary::-webkit-details-marker{display:none}.bt_latestNode>summary:focus-visible{outline:2px solid var(--dsw-alias-state-error-primary);outline-offset:2px}.bt_latestLabel{color:var(--dsw-alias-state-error-primary);font-weight:600}',
       '.bt_failureTitle{font-size:17px;font-weight:700;line-height:1.5;color:var(--dsw-alias-state-error-primary)}',
       '.bt_detailPair{display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:8px;min-width:0}.bt_detailPair>details{margin:0}.bt_detailPair .bt_depth{margin-left:0;padding-left:8px}',
       '.bt_errorGroup>.bt_network>.bt_body{margin-left:0}.bt_primary{font-size:15px;line-height:1.6}.bt_original{font-size:14px}',
@@ -332,7 +344,7 @@ window.__ModuleLoader__.load({
         let cancelled = false
         const controller = new AbortController()
         const publish = (value) => { if (!cancelled) setState({ ...value, identity }) }
-        const timeout = setTimeout(() => { controller.abort(); publish({ error: 'Request timeout' }) }, 10000)
+        const timeout = setTimeout(() => { controller.abort(); publish({ error: 'request-timeout' }) }, 10000)
         Promise.resolve().then(() => {
           if (controller.signal.aborted) return undefined
           return fetchJson(url, controller.signal)
@@ -425,7 +437,7 @@ window.__ModuleLoader__.load({
             h('summary', { className: 'bt_meta' }, toggleLabel(t), t('ui.record', { index: index + 1 }), failurePreview(item.failure).value),
             captureBlock(item, index, t, true, true)))) : null,
         !state ? h('span', { className: 'bt_meta' }, t('ui.loading'))
-          : state.error ? h('span', { className: 'bt_meta' }, t('ui.loadFailed', { message: state.error }))
+          : state.error ? h('span', { className: 'bt_meta' }, t('ui.loadFailed', { message: diagnosticProblem(state.error, t) }))
             : !chosen?.detail && !candidates.length && !extra ? h('span', { className: 'bt_meta' }, t(state.data?.capture?.installed === false ? state.data.capture.reason === 'config-disabled' ? 'ui.disabled' : 'ui.captureUnavailable' : 'ui.empty')) : null,
         h(RefreshButton, { refresh, t }),
         extra ?? null)
@@ -436,7 +448,13 @@ window.__ModuleLoader__.load({
       let matches = exact
       let timeBased = false
       const attemptId = row.attemptId ?? failure.attemptId
-      if (attemptId) matches = exact.filter((item) => item.attemptId === attemptId)
+      const kind = row.retry !== undefined ? 'retry' : 'terminal'
+      const eventMatches = exact.filter((item) => validSeq(row.seq) && item.event?.seq === row.seq
+        && item.event.kind === kind && item.event.turn === row.turn && item.event.step === step)
+      const eventBased = eventMatches.length === 1
+      if (attemptId) matches = exact.filter((item) => item.attemptId === attemptId && (!item.event || eventMatches.includes(item)))
+      else if (eventBased) matches = eventMatches
+      else if (exact.some((item) => Object.hasOwn(item, 'event')) && validSeq(row.seq)) matches = []
       else if (exact.length > 1 && Number.isFinite(row.time)) {
         timeBased = true
         const near = exact.filter((item) => Number.isFinite(item.failureTime) && Math.abs(item.failureTime - row.time) <= 10)
@@ -446,10 +464,13 @@ window.__ModuleLoader__.load({
       const chosen = matches.length === 1 ? matches[0] : !exact.length && items.length === 1 ? items[0] : undefined
       const context = chosen?.context ?? chosen?.detail?.context
       const confirmed = !timeBased && !!chosen && matches.length === 1 && matches[0] === chosen && chosen.provenance === 'request-context'
+        && (!Object.hasOwn(chosen, 'event') || eventBased)
         && chosen.approximate !== true && context?.sessionId === sessionId
         && typeof chosen.attemptId === 'string' && chosen.attemptId !== '' && context.attemptId === chosen.attemptId
         && typeof context.provider === 'string' && context.provider !== ''
         && (!row.provider || context.provider === row.provider)
+        && (!chosen.detail?.context || chosen.detail.context.attemptId === chosen.attemptId
+          && chosen.detail.context.sessionId === sessionId && chosen.detail.context.provider === context.provider)
         && (!attemptId || context.attemptId === attemptId)
       return { chosen, unconfirmed: !!chosen && !confirmed, candidates: chosen ? [] : items }
     }
@@ -511,7 +532,7 @@ window.__ModuleLoader__.load({
     }
     const reportTime = (value, t) => {
       if (!Number.isFinite(value) || Math.abs(value) > 8640000000000000) return t('report.missing')
-      return new Date(value).toLocaleString('zh-CN', { hour12: false }) + ' (' + Intl.DateTimeFormat().resolvedOptions().timeZone + ')'
+      return new Date(value).toLocaleString(t('format.locale'), { hour12: false }) + ' (' + Intl.DateTimeFormat().resolvedOptions().timeZone + ')'
     }
     const reportExcerpt = (value, limit, t) => {
       const clean = text(value).replace(/\s+/g, ' ').trim()
@@ -545,14 +566,14 @@ window.__ModuleLoader__.load({
       const plugins = Array.isArray(runtime?.enabledPlugins) ? runtime.enabledPlugins : []
       const pluginNames = [...new Set(plugins.filter((plugin) => typeof plugin?.name === 'string' && plugin.name.trim())
         .map((plugin) => plugin.name + '@' + (typeof plugin.version === 'string' && plugin.version.trim() ? plugin.version : missing)))].sort()
-      const inventory = runtime?.pluginsStatus === 'complete' ? pluginNames.join('、') || t('report.pluginsNone')
-        : (pluginNames.length ? pluginNames.join('、') + ' · ' : '') + t(runtime?.pluginsStatus === 'partial' ? 'report.pluginsPartial' : 'report.pluginsUnavailable')
+      const inventory = runtime?.pluginsStatus === 'complete' ? pluginNames.join(t('format.list')) || t('report.pluginsNone')
+        : (pluginNames.length ? pluginNames.join(t('format.list')) + ' · ' : '') + t(runtime?.pluginsStatus === 'partial' ? 'report.pluginsPartial' : 'report.pluginsUnavailable')
       lines.push(t('report.plugins') + ': ' + inventory, '', t('report.native') + ': ' + reportExcerpt(native, 600, t))
       if (record || selection.unconfirmed) lines.push('', t('report.unconfirmed'))
       if (record) lines.push(t('report.summaryError') + ': ' +
         (protectedAuth ? t('report.protected') : reportExcerpt(rawFailure(selected?.failure ?? selected?.thrown) || (selected?.finishReason ? 'finish=' + selected.finishReason : missing), 300, t)))
       if (!detail) lines.push(t('report.underlying') + ': ' +
-        (error ? t('report.noEvidence') + ' · ' + t('report.readFailed') + ': ' + reportExcerpt(error, 80, t)
+        (error ? t('report.noEvidence') + ' · ' + t('report.readFailed') + ': ' + reportExcerpt(diagnosticProblem(error, t), 80, t)
           : capture?.installed === false ? t(capture.reason === 'config-disabled' ? 'ui.disabled' : 'ui.captureUnavailable')
             : t('report.noEvidence') + (selection.candidates?.length ? ' · ' + t('report.ambiguous') : '')))
       else {
@@ -578,7 +599,7 @@ window.__ModuleLoader__.load({
       if (row.retry !== undefined) params.push(t('report.retry') + ' ' + row.retry + '/' + (row.maxRetries ?? '?'))
       const after = failure?.providerRetryAfterMs ?? detail?.headers?.['retry-after']
       if (after !== undefined) params.push('Retry-After ' + after + (failure?.providerRetryAfterMs !== undefined ? ' ms' : ''))
-      if (params.length) lines.push(params.join('；'))
+      if (params.length) lines.push(params.join(t('format.params')))
       lines.push('', t('report.help'))
       return safeLogValue(lines.join('\n'))
     }
@@ -587,10 +608,13 @@ window.__ModuleLoader__.load({
       const [report, setReport] = React.useState('')
       const alive = React.useRef(true)
       const operation = React.useRef(null)
+      const language = t('format.locale')
       React.useEffect(() => {
         alive.current = true
-        return () => { alive.current = false; operation.current?.abort() }
-      }, [])
+        setStatus('')
+        setReport('')
+        return () => { alive.current = false; operation.current?.abort(); operation.current = null }
+      }, [language])
       const copy = async () => {
         if (operation.current) return
         const controller = new AbortController()
@@ -602,7 +626,7 @@ window.__ModuleLoader__.load({
         try {
           if (!data && url) {
             try { data = await fetchJson(url, controller.signal); problem = undefined }
-            catch (error) { problem = controller.signal.aborted ? 'Request timeout' : text(error?.message ?? error) }
+            catch (error) { problem = controller.signal.aborted ? t('ui.requestTimeout') : diagnosticProblem(error?.message ?? error, t) }
           }
           if (!alive.current || operation.current !== controller) return
           let environment
@@ -677,7 +701,7 @@ window.__ModuleLoader__.load({
                 : state.missing ? h('div', { className: 'bt_meta', role: 'status' }, t('log.missing')) : null,
           target ? h('div', { className: 'bt_logMetadata' },
             !metadata ? h('div', { className: 'bt_meta' }, t('log.metadataLoading'))
-              : metadata.error ? h('div', { className: 'bt_meta' }, `${t('log.metadataFailed')} · ${metadata.error}`)
+              : metadata.error ? h('div', { className: 'bt_meta' }, `${t('log.metadataFailed')} · ${diagnosticProblem(metadata.error, t)}`)
                 : h(React.Fragment, null,
                   h('div', { className: 'bt_logHeading' }, t('log.file')),
                   h('pre', { className: 'bt_raw bt_logPath' }, metadata.data?.log?.status === 'found' ? metadata.data.log.path : t('log.pathMissing')),
@@ -724,26 +748,42 @@ window.__ModuleLoader__.load({
         h('pre', { className: 'bt_original' }, rawFailure(failure)),
         h(CopyButton, { value: rawFailure(failure), label: 'ui.copyError', t }))
     }
+    // A recorder object without an error/status/body is not useful evidence.
+    const hasCapture = (selection, allowUnconfirmed = false) => {
+      if (selection?.unconfirmed && !allowUnconfirmed) return false
+      const detail = selection?.chosen?.detail
+      if (!detail || typeof detail !== 'object') return false
+      const httpStatus = Number.isInteger(detail.status) && detail.status >= 100 && detail.status <= 599
+      if (detail.kind === 'response') return httpStatus || (!detail.protected && detail.bodyReason !== 'credential-protection' && text(detail.body).trim() !== '')
+      // A successful HTTP status alone is not a stream failure.
+      if (!['network', 'undici', 'stream'].includes(detail.kind)) return false
+      for (let error = detail.error, depth = 0; error && depth < 16; depth++, error = error.cause) {
+        if (text(error.code).trim() || text(error.message).trim()) return true
+      }
+      return false
+    }
+    function nativeFallbackSection (failure, t) {
+      return h('section', { className: 'bt_section bt_nativeFallback' },
+        h('h4', { className: 'bt_heading' }, t('ui.original')),
+        originalControls(failure, t))
+    }
     function errorRow (title, failure, state, selection, t, log, disclosure = {}) {
       const check = selection.check ?? (text(failure?.message) === 'Stream ended without finish_reason' ? 'finishReason'
         : selection.chosen?.detail && !selection.unconfirmed ? detailCheck(selection.chosen.detail) : failureCheck(failure))
-      const nativeFallback = disclosure.fallbackNative && !selection.chosen?.detail
+      const nativeFallback = !hasCapture(selection, disclosure.fallbackNative === true)
       return h('div', { className: 'bt_errorGroup' },
         h('div', { className: 'bt_failureTitle' }, title),
-        nativeFallback ? h('section', { className: 'bt_section bt_nativeFallback' },
-          h('h4', { className: 'bt_heading' }, t('ui.original')),
-          originalControls(failure, t),
-          evidenceBody({ state }, t))
-          : disclosure.historyOnly ? null : networkSection(selection, state, null, t, false),
+        disclosure.historyOnly ? null : nativeFallback ? nativeFallbackSection(failure, t)
+          : networkSection(selection, state, null, t, false),
         disclosure.nativeStatus ?? null,
         disclosure.historyOnly ? null : failure?.code === 'AUTH' && !failure.message ? h('div', { className: 'bt_protected' }, t('ui.authProtected')) : adviceRow(check, t),
         disclosure.historyOnly ? null : disclosure.report ?? null,
         disclosure.historyOnly ? disclosure.history : h('div', { className: 'bt_detailPair' },
-          captureDetails(selection.chosen, t),
+          nativeFallback ? null : captureDetails(selection.chosen, t),
           disclosureBlock({ className: 'bt_error bt_disclosure', open: disclosure.open, onToggle: disclosure.onToggle },
             h('summary', null, toggleLabel(t), h('span', { className: 'bt_title' }, t(nativeFallback ? 'ui.logSection' : 'ui.original')), disclosure.countLabel || null),
             h('div', { className: 'bt_body bt_detailBody' },
-              nativeFallback ? null : originalControls(failure, t),
+              nativeFallback ? disclosure.fallbackNative ? null : networkSection(selection, state, null, t) : originalControls(failure, t),
               disclosure.history ?? null,
               log ? h('section', { className: 'bt_section' },
                 h('h4', { className: 'bt_heading' }, t('ui.logSection')),
@@ -768,7 +808,7 @@ window.__ModuleLoader__.load({
       if (!node) return null
       return h(ErrorCard, { title: t(data.code === 'INTERRUPTED' || data.code === 'ACCOUNT_SIGNED_OUT' ? 'ui.stopped' : 'ui.error'),
         failure, sessionId, node, t, url: requestUrl(sessionId, data.turn, 'terminal'), revision: rawFailure(failure),
-        select: (state) => selectStep(state, data.step, failure, data, sessionId) })
+        select: (state) => selectStep(state, data.step, failure, { ...data, seq: data.seq ?? node.anchorSeq }, sessionId) })
     }
     function retryTitle (current, t) {
       const label = current.retryState === 'cancelled' ? 'ui.cancelled'
@@ -795,15 +835,15 @@ window.__ModuleLoader__.load({
     }
     function ErrorSequenceRow ({ component, useChat, node, t, ...props }) {
       const successor = typeof useChat === 'function' ? useChat((snapshot) => followingError(snapshot, node)) : ''
-      const identity = JSON.stringify([props.sessionId, node?.key, successor])
+      const contentIdentity = JSON.stringify([props.sessionId, node?.key, node?.id, logCoordinate(node), node?.data?.message, node?.data?.endedAt])
+      const identity = JSON.stringify([contentIdentity, successor])
       const [choice, setChoice] = React.useState(null)
-      const open = choice?.identity === identity && choice.open
-      const content = () => h(component, { ...props, node, t,
-        key: JSON.stringify([props.sessionId, node?.key, node?.id, logCoordinate(node), node?.data?.message, node?.data?.endedAt]) })
-      if (!successor || !isErrorNode(node)) return content()
-      return disclosureBlock({ className: 'bt_earlierNode bt_errorGroup', open,
+      const open = choice?.identity === identity ? choice.open : !successor
+      const content = () => h(component, { ...props, node, t, key: contentIdentity })
+      if (!isErrorNode(node)) return content()
+      return disclosureBlock({ className: `${successor ? 'bt_earlierNode' : 'bt_latestNode'} bt_errorGroup`, open,
         onToggle: (event) => { if (!event.target || event.target === event.currentTarget) setChoice({ identity, open: event.currentTarget.open }) } },
-        h('summary', null, toggleLabel(t), t('ui.earlierBlock')),
+        h('summary', null, toggleLabel(t), h('span', { className: successor ? 'bt_earlierLabel' : 'bt_latestLabel' }, t(successor ? 'ui.earlierBlock' : 'ui.latestBlock'))),
         open ? content() : null)
     }
     function earlierErrors (blocks, t) {
@@ -820,20 +860,22 @@ window.__ModuleLoader__.load({
         const attemptNode = { ...node, kind: 'model-retry', data: { current: attempt } }
         const check = text(failure.message) === 'Stream ended without finish_reason' ? 'finishReason'
           : selection.chosen?.detail && !selection.unconfirmed ? detailCheck(selection.chosen.detail) : failureCheck(failure)
+        const nativeFallback = !hasCapture(selection)
         return h('div', { className: 'bt_attempt', key: attempt.seq ?? attempt.attemptId ?? index },
           index < attempts.length - 1 ? h('div', { className: 'bt_heading' }, retryTitle(attempt, t)) : null,
-          networkSection({ ...selection, inlineCopy: false, captureAdvice: false }, state, null, t, false),
+          nativeFallback ? nativeFallbackSection(failure, t)
+            : networkSection({ ...selection, inlineCopy: false, captureAdvice: false }, state, null, t, false),
           failure.code === 'AUTH' && !failure.message ? h('div', { className: 'bt_meta' }, t('ui.authProtected')) : adviceRow(check, t, index === attempts.length - 1 ? 'bt_captureAdvice bt_advice' : 'bt_captureAdvice'),
-          selection.chosen?.detail ? h(CopyButton, { value: captureText(selection.chosen), label: 'ui.copyCapture', t }) : null,
+          !nativeFallback ? h(CopyButton, { value: captureText(selection.chosen), label: 'ui.copyCapture', t }) : null,
           h(ReportButton, { key: JSON.stringify([sessionId, attempt.seq, attempt.attemptId]),
             url: requestUrl(sessionId, attempt.turn, 'retry'), state,
             select: (fresh) => selectStep(fresh, attempt.step, failure, attempt, sessionId),
             failure, row: attempt, title: retryTitle(attempt, t), t }),
           h('div', { className: 'bt_detailPair' },
-            captureDetails(selection.chosen, t, selection.unconfirmed),
+            nativeFallback ? null : captureDetails(selection.chosen, t, selection.unconfirmed),
             disclosureBlock({ className: 'bt_attemptNative' },
-              h('summary', null, toggleLabel(t), t('ui.original'), validSeq(attempt.seq) ? ' · seq=' + attempt.seq : ''),
-              originalControls(failure, t),
+              h('summary', null, toggleLabel(t), t(nativeFallback ? 'ui.logSection' : 'ui.original'), validSeq(attempt.seq) ? ' · seq=' + attempt.seq : ''),
+              nativeFallback ? networkSection(selection, state, null, t) : originalControls(failure, t),
               h(RawLog, { key: JSON.stringify([sessionId, logCoordinate(attemptNode)]), sessionId, node: attemptNode, t, capture: selection.chosen, unconfirmed: selection.unconfirmed }))))
       })
       const grouped = earlierErrors(blocks, t)

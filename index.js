@@ -299,7 +299,18 @@ export function apply (ctx, config = {}) {
     const history = details.get(key) ?? []
     const now = Date.now()
     const record = captureFor(context)
+    const eventFromSeq = Number.isSafeInteger(agent.session?.seq) ? agent.session.seq : undefined
+    // Close earlier intervals before publishing the next attempt. Keep this on
+    // the record itself so an in-flight API snapshot observes the new boundary.
+    if (eventFromSeq !== undefined) for (const [entryKey, entries] of details) {
+      if (!entryKey.startsWith(`${agent.id}:`)) continue
+      for (const entry of entries) if (entry.eventToSeq === undefined) entry.eventToSeq = eventFromSeq
+    }
     history.push({ step, provider, attemptId: context.attemptId,
+      // seq is the next append position at this exact request-error boundary.
+      // Do not persist or infer it from wall-clock time.
+      eventFromSeq,
+      failureKey: failureKey(failure),
       failureIndex: (history.at(-1)?.failureIndex ?? 0) + 1, failureTime: now,
       at: record?.at ?? now, lagMs: record ? Math.max(0, now - record.at) : undefined,
       provenance: 'request-context', context, approximate: false,
@@ -679,6 +690,38 @@ export function apply (ctx, config = {}) {
       } finally { try { await handle?.close() } catch (error) { ctx.logger?.warn?.('better-tips: metadata read handle close failed: %o', error) } }
     }
     scope.effect(() => connection.fetch.register({ path: '/api/better-tips/log-metadata', methods: ['GET'], requestBody: 'buffered', fetch: metadataHandler }), 'better-tips: log metadata api')
+    // Resolve against the real log, including retries owned by other plugins.
+    // A failure boundary ends at the next observed failure (never a timestamp).
+    const eventCoordinates = async (sessionId, values, signal) => {
+      try {
+        const query = scope.get('sessionQuery')
+        if (typeof query?.inspectSession !== 'function') return new Map()
+        return await query.inspectSession(sessionId, (session) => {
+          const coordinates = new Map()
+          for (const { value, turn } of values) {
+            const from = value.eventFromSeq
+            if (!Number.isSafeInteger(from) || from < 0 || from > session.seq) continue
+            const end = Math.min(session.seq, from + 128, value.eventToSeq ?? Infinity)
+            const events = session.snapshotEvents(from, end)
+            const matches = []
+            for (const event of events) {
+              const data = event.data ?? {}
+              // A new step/turn invalidates any still-unbound failure.
+              if (['turn/start', 'step/start', 'assistant/attempt', 'assistant/message'].includes(event.type)) break
+              if (event.type === 'llm/retry' && data.turn === turn && data.step === value.step
+                && data.provider === value.provider && failureKey(data.failure) === value.failureKey) matches.push(event)
+              if (event.type === 'turn/end') {
+                if (data.turn === turn && data.reason?.kind === 'error' && failureKey(data.reason.error) === value.failureKey) matches.push(event)
+                break
+              }
+            }
+            if (matches.length === 1) coordinates.set(value.attemptId, { seq: matches[0].seq,
+              kind: matches[0].type === 'llm/retry' ? 'retry' : 'terminal', turn, step: value.step })
+          }
+          return coordinates
+        }, signal)
+      } catch { return new Map() } // Missing log evidence must remain tentative.
+    }
     const handler = async (request) => {
       try {
         const url = new URL(request.url)
@@ -688,25 +731,26 @@ export function apply (ctx, config = {}) {
           return jsonResponse({ error: 'invalid sessionId or turn' }, 400)
         }
         const prefix = `${sessionId}:${turn}:`
+        const values = [...details.entries()].filter(([key]) => key.startsWith(prefix))
+          .flatMap(([, history]) => history.map((value) => ({ value, turn })))
+        const coordinates = await eventCoordinates(sessionId, values, request.signal)
         const items = []
-        for (const [key, history] of details) {
-          if (!key.startsWith(prefix)) continue
-          for (const value of history) {
-            items.push({
-              step: value.step,
-              provider: value.provider,
-              at: value.at,
-              lagMs: value.lagMs,
-              approximate: value.approximate === true,
-              provenance: value.provenance,
-              context: value.context,
-              attemptId: value.attemptId,
-              failureIndex: value.failureIndex,
-              failureTime: value.failureTime,
-              failure: { message: value.failureMessage, code: value.failureCode },
-              detail: value.record ? shapeDetail(value.record, value.failureCode === 'AUTH') : undefined,
-            })
-          }
+        for (const { value } of values) {
+          items.push({
+            step: value.step,
+            provider: value.provider,
+            at: value.at,
+            lagMs: value.lagMs,
+            approximate: value.approximate === true,
+            provenance: value.provenance,
+            context: value.context,
+            attemptId: value.attemptId,
+            event: coordinates.get(value.attemptId) ?? null,
+            failureIndex: value.failureIndex,
+            failureTime: value.failureTime,
+            failure: { message: value.failureMessage, code: value.failureCode },
+            detail: value.record ? shapeDetail(value.record, value.failureCode === 'AUTH') : undefined,
+          })
         }
         items.sort((left, right) => left.at - right.at)
         // The panel shows this so an empty answer is never a mystery: either the

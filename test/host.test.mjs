@@ -565,6 +565,91 @@ test('a failed request is correlated by its stream context and served with prove
   } finally { await disposeHarness(h); globalThis.fetch = originalFetch }
 })
 
+test('failure event coordinates distinguish identical retries from the terminal failure without timing', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => new Response('', { status: 502 })
+  const events = []
+  let seq = 10
+  const session = { get seq () { return seq }, snapshotEvents: (from, end) => events.filter((event) => event.seq >= from && event.seq < end),
+    append (type, data) { const event = { type, data, seq: seq++, time: 1000 }; events.push(event); return event } }
+  const h = harness({ captureDetails: true, extraRetries: 0 }, { services: {
+    sessionQuery: { inspectSession: async (id, read) => { assert.equal(id, 'session-1'); return read(session) } },
+  } })
+  const failure = { code: 'SERVER', message: 'identical error' }
+  const fail = async () => {
+    for await (const _ of h.streamListeners[0].call({}, { sessionId: 'session-1', provider: 'dingdongji' }, () => (async function * () {
+      await fetch('https://llm.example/v1/chat'); yield { type: 'finish', reason: { kind: 'error', failure } }
+    })())) {}
+    await h.listeners[0](h.payload({ agent: { id: 'session-1', session }, failure }), async () => undefined)
+  }
+  try {
+    await fail()
+    assert.equal((await requestDetails(h)).items[0].event, null, 'no native event yet')
+    session.append('llm/retry', { turn: 1, step: 1, provider: 'dingdongji', failure })
+    session.append('llm/retry-started', { turn: 1, step: 1 })
+    await fail()
+    session.append('turn/end', { turn: 1, reason: { kind: 'error', error: failure } })
+    const { items } = await requestDetails(h)
+    assert.deepEqual(items.map((item) => item.event), [
+      { seq: 10, kind: 'retry', turn: 1, step: 1 }, { seq: 12, kind: 'terminal', turn: 1, step: 1 },
+    ])
+    for (const item of items) assert.equal(item.detail.context.attemptId, item.attemptId)
+    // Foreign provider/turn/step or contradictory native failure never confirms.
+    for (const mutation of [
+      (event) => { event.data.provider = 'foreign' },
+      (event) => { event.data.turn = 2 },
+      (event) => { event.data.step = 2 },
+      (event) => { event.data.failure = { ...failure, message: 'different' } },
+    ]) {
+      const saved = structuredClone(events[0]); mutation(events[0])
+      assert.equal((await requestDetails(h)).items[0].event, null)
+      events[0] = saved
+    }
+    // Duplicate matching events in a request interval are ambiguous.
+    events.splice(1, 0, { ...structuredClone(events[0]), seq: 11 })
+    assert.equal((await requestDetails(h)).items[0].event, null)
+  } finally { await disposeHarness(h); globalThis.fetch = originalFetch }
+})
+
+test('pending coordinate reads cannot attach an earlier capture to a later identical terminal event', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => new Response('', { status: 502 })
+  const events = []
+  let seq = 10
+  let release
+  let requested
+  const requestedPromise = new Promise((resolve) => { requested = resolve })
+  const gate = new Promise((resolve) => { release = resolve })
+  const session = { get seq () { return seq }, snapshotEvents: (from, end) => events.filter((event) => event.seq >= from && event.seq < end) }
+  const h = harness({ captureDetails: true, extraRetries: 0 }, { services: {
+    sessionQuery: { inspectSession: async (id, read) => { requested(); await gate; return read(session) } },
+  } })
+  const failure = { code: 'SERVER', message: 'identical error' }
+  const fail = async () => {
+    for await (const _ of h.streamListeners[0].call({}, { sessionId: 'session-1', provider: 'dingdongji' }, () => (async function * () {
+      await fetch('https://llm.example/v1/chat'); yield { type: 'finish', reason: { kind: 'error', failure } }
+    })())) {}
+    await h.listeners[0](h.payload({ agent: { id: 'session-1', session }, failure }), async () => undefined)
+  }
+  try {
+    await fail()
+    const pending = requestDetails(h)
+    await requestedPromise
+    // Another recovery owner may return retry without appending llm/retry.
+    await fail()
+    events.push({ seq: seq++, type: 'turn/end', data: { turn: 1, reason: { kind: 'error', error: failure } } })
+    release()
+    const before = await pending
+    assert.equal(before.items.length, 1, 'response keeps its requested item snapshot')
+    assert.equal(before.items[0].event, null, 'old attempt cannot claim new terminal')
+    const after = await requestDetails(h)
+    assert.equal(after.items[0].event, null)
+    assert.equal(after.items[1].event.seq, 10)
+    events.unshift({ seq: 10, type: 'assistant/attempt', data: { turn: 1, step: 1 } })
+    assert.equal((await requestDetails(h)).items[1].event, null, 'a later model attempt closes the scan even without captured context')
+  } finally { release(); await disposeHarness(h); globalThis.fetch = originalFetch }
+})
+
 test('the network-detail route answers with an empty list and refuses bad input', async () => {
   const { routes } = harness({ extraRetries: 1 })
   const route = routes.find((candidate) => candidate.path === '/api/better-tips/details')
