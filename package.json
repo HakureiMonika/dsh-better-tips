@@ -1,6 +1,6 @@
 {
   "name": "dsh-better-tips",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "type": "module",
   "description": "Clear DSH error summaries, original messages, on-demand network evidence, copyable troubleshooting reports and bounded retries.",
   "author": "HakureiMonika",
