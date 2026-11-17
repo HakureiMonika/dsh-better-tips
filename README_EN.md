@@ -18,6 +18,7 @@ English | [简体中文](README.md)
 ## Contents
 
 - [The Problem It Solves](#the-problem-it-solves)
+- [Error Reference](#error-reference)
 - [Live Examples](#live-examples)
 - [Quick Start & Installation](#quick-start--installation)
 - [Why dsh-better-tips?](#why-dsh-better-tips)
@@ -38,6 +39,24 @@ Connection, gateway, and compaction failures in DSH often lack useful troublesho
 - **Compaction Visibility**: Shows automatic and manual compaction failures in the chat, along with available attempt records and diagnostics.
 - **One-Click Troubleshooting Reports**: Summarizes errors and environment details, filters common credential patterns, and copies the report for support tickets or AI debugging.
 - **History Folding & Log Slices**: Folds earlier errors and shows the exact log event with nearby records. Source-location references are also available for some known errors.
+
+---
+
+## Error Reference
+
+Rows follow the error text shown in the DSH UI. Strings stay in English so they match your logs.
+
+| Error you see | What DSH shows natively | What the plugin adds |
+| :--- | :--- | :--- |
+| `DeepSeek Messages transport failed`<br>`[TRANSPORT] Connection error.` | That single line | The cause chain, e.g. `TypeError: fetch failed` → `SocketError: other side closed [UND_ERR_SOCKET]`, plus 2 extra bounded retries |
+| `fetch failed` / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` | Flattened into `TRANSPORT` | The underlying `errno`, the failing stage, and the target host |
+| `PI_AI_ERROR` (including `Internal server error`, `exceeded request buffer limit`) | Only the error code | Upstream status and response body; 2 extra bounded retries by default |
+| `DeepSeek Messages request failed (400)` / `INVALID_REQUEST` | Only the status code | The raw upstream response body (up to 4096 chars, truncation marked) and `x-request-id` |
+| A 403 displayed as `API key invalid` | Fixed message | The real 403 body and `x-request-id` |
+| `429` / `rate limit exceeded` | Short text only | `retry-after`, `x-ratelimit-*`, `x-request-id`, and top-level `details` |
+| `502` / `504` / `Bad gateway` / `upstream_unavailable` | Short status only | `server`, `via`, `x-request-id`, and upstream connection diagnostics |
+| `Compaction could not produce a useful summary.` | One generic line | The failing model, duration, usage and network diagnostics; 2 extra bounded retries per compaction |
+| `MALFORMED_RESPONSE` (malformed tool-argument JSON) | Native error | Not captured. This failure never reaches the network layer, so the native error is shown in full |
 
 ---
 

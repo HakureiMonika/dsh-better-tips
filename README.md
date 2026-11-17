@@ -18,6 +18,7 @@
 ## 目录
 
 - [它旨在解决什么问题？](#它旨在解决什么问题)
+- [常见报错对照](#常见报错对照)
 - [实机效果展示](#实机效果展示)
 - [快速开始 & 安装指南](#快速开始--安装指南)
 - [为什么需要 dsh-better-tips？](#为什么需要-dsh-better-tips)
@@ -38,6 +39,24 @@
 - **上下文压缩状态追踪**：在对话中显示自动与手动压缩失败，以及已取得的尝试记录和诊断信息。
 - **一键复制排障报告**：汇总错误和环境信息，过滤常见凭据，便于提交工单或交给 AI 排查。
 - **历史收纳与日志切片**：折叠更早的报错，按事件位置查看原始日志及相邻记录；部分已知错误还可查看源码位置参考。
+
+---
+
+## 常见报错对照
+
+下表按 DSH 界面上实际出现的报错原文排列。原始字符串保持英文，方便和日志对上。
+
+| 你看到的报错 | DSH 原生给的信息 | 本插件补充的信息 |
+| :--- | :--- | :--- |
+| `DeepSeek Messages transport failed`<br>`[TRANSPORT] Connection error.` | 只有这一句 | 异常原因链，如 `TypeError: fetch failed` → `SocketError: other side closed [UND_ERR_SOCKET]`；另多做 2 次有界重试 |
+| `fetch failed` / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` | 被折叠成 `TRANSPORT` | 底层 `errno`、卡在哪个阶段、目标主机 |
+| `PI_AI_ERROR`（含 `Internal server error`、`exceeded request buffer limit`） | 只有一个错误码 | 上游状态码与响应正文；默认额外重试 2 次 |
+| `DeepSeek Messages request failed (400)` / `INVALID_REQUEST` | 只有状态码 | 上游原始响应正文（最多 4096 字符，超出标截断）与 `x-request-id` |
+| 403 却显示 `API key invalid` | 固定文案 | 上游真实的 403 正文与 `x-request-id` |
+| `429` / `rate limit exceeded` | 只有短文本 | `retry-after`、`x-ratelimit-*`、`x-request-id` 及 JSON 顶层 `details` |
+| `502` / `504` / `Bad gateway` / `upstream_unavailable` | 简短状态码 | `server`、`via`、`x-request-id`，以及上游连接拒绝详情 |
+| `Compaction could not produce a useful summary.` | 一句通用提示 | 失败的模型、耗时、用量和网络诊断；压缩请求默认额外重试 2 次 |
+| `MALFORMED_RESPONSE`（工具参数 JSON 拼接错误） | 原生报错 | 不接管。这类失败不经过网络请求，插件直接完整展示原生报错 |
 
 ---
 
