@@ -179,7 +179,7 @@ Override the installed plugin's settings in your profile's `cordis.patch.yml`. T
 
 ```sh
 npm run check   # Syntax and module checks
-npm test        # Run all 240 offline contract and regression tests
+npm test        # Run all 241 offline contract and regression tests
 ```
 
 Licensed under the [MIT License](LICENSE). Issues and Pull Requests are welcome at [GitHub Issues](https://github.com/HakureiMonika/dsh-better-tips/issues).

@@ -295,6 +295,26 @@ test('report environment requires authenticated owner before collecting inventor
   try { assert.equal((await reportEnvironment(h, controller.signal)).status, 499) } finally { await disposeHarness(h) }
 })
 
+test('every diagnostic route requires the authenticated owner, not just the report route', async () => {
+  const paths = [
+    '/api/better-tips/environment',
+    '/api/better-tips/log-metadata?sessionId=session-1&seq=1',
+    '/api/better-tips/details?sessionId=session-1&turn=1',
+    '/api/better-tips/compaction?sessionId=session-1',
+  ]
+  for (const [admission, status] of [[{ rejection: 401 }, 401], [{ peer: { principal: { kind: 'guest' } } }, 403], [{}, 403]]) {
+    const h = harness({}, { admission })
+    try {
+      assert.equal(h.routes.length, 4)
+      for (const path of paths) {
+        const route = h.routes.find((entry) => entry.path === path.split('?')[0])
+        const response = await route.fetch(new Request(`http://localhost${path}`))
+        assert.equal(response.status, status, `${path} must answer ${status}`)
+      }
+    } finally { await disposeHarness(h) }
+  }
+})
+
 test('diagnostic routes share cached versions from the actual launch and plugin manifests', async () => {
   const originalRead = fs.readFile
   const oldInstall = process.env.DSH_INSTALL_DIR

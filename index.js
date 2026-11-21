@@ -638,10 +638,15 @@ export function apply (ctx, config = {}) {
       return { enabledPlugins: [...unique.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : (a.version ?? '') < (b.version ?? '') ? -1 : (a.version ?? '') > (b.version ?? '') ? 1 : 0),
         pluginsStatus: !entriesAvailable && !bundlesAvailable ? 'unavailable' : partial || !entriesAvailable || !bundlesAvailable ? 'partial' : 'complete' }
     }
-    const environmentHandler = async (request) => {
+    // Every diagnostic route answers the owning client only. The guard lives in
+    // one wrapper so a route registered later cannot quietly skip it.
+    const ownerOnly = (handler) => async (request) => {
       const admission = connection.admit(request)
       if (admission.rejection) return jsonResponse({ error: 'unauthorized' }, admission.rejection)
       if (admission.peer?.principal?.kind !== 'owner') return jsonResponse({ error: 'owner required' }, 403)
+      return handler(request)
+    }
+    const environmentHandler = async (request) => {
       try {
         request.signal.throwIfAborted()
         const inventory = await enabledPluginInventory(request.signal)
@@ -653,11 +658,8 @@ export function apply (ctx, config = {}) {
         return jsonResponse({ runtime: { dshVersion, pluginVersion, ...inventory } })
       } catch { return jsonResponse({ error: request.signal.aborted ? 'cancelled' : 'environment unavailable' }, request.signal.aborted ? 499 : 503) }
     }
-    scope.effect(() => connection.fetch.register({ path: '/api/better-tips/environment', methods: ['GET'], requestBody: 'buffered', fetch: environmentHandler }), 'better-tips: report environment api')
+    scope.effect(() => connection.fetch.register({ path: '/api/better-tips/environment', methods: ['GET'], requestBody: 'buffered', fetch: ownerOnly(environmentHandler) }), 'better-tips: report environment api')
     const metadataHandler = async (request) => {
-      const admission = connection.admit(request)
-      if (admission.rejection) return jsonResponse({ error: 'unauthorized' }, admission.rejection)
-      if (admission.peer?.principal?.kind !== 'owner') return jsonResponse({ error: 'owner required' }, 403)
       const url = new URL(request.url)
       const sessionId = url.searchParams.get('sessionId') ?? ''
       const seqText = url.searchParams.get('seq') ?? ''
@@ -689,7 +691,7 @@ export function apply (ctx, config = {}) {
         return jsonResponse({ error: String(error?.message ?? error) }, 500)
       } finally { try { await handle?.close() } catch (error) { ctx.logger?.warn?.('better-tips: metadata read handle close failed: %o', error) } }
     }
-    scope.effect(() => connection.fetch.register({ path: '/api/better-tips/log-metadata', methods: ['GET'], requestBody: 'buffered', fetch: metadataHandler }), 'better-tips: log metadata api')
+    scope.effect(() => connection.fetch.register({ path: '/api/better-tips/log-metadata', methods: ['GET'], requestBody: 'buffered', fetch: ownerOnly(metadataHandler) }), 'better-tips: log metadata api')
     // Resolve against the real log, including retries owned by other plugins.
     // A failure boundary ends at the next observed failure (never a timestamp).
     const eventCoordinates = async (sessionId, values, signal) => {
@@ -773,7 +775,7 @@ export function apply (ctx, config = {}) {
         path: '/api/better-tips/details',
         methods: ['GET'],
         requestBody: 'buffered',
-        fetch: handler,
+        fetch: ownerOnly(handler),
       }),
       'better-tips: network detail api',
     )
@@ -831,7 +833,7 @@ export function apply (ctx, config = {}) {
         path: '/api/better-tips/compaction',
         methods: ['GET'],
         requestBody: 'buffered',
-        fetch: compactionHandler,
+        fetch: ownerOnly(compactionHandler),
       }),
       'better-tips: compaction evidence api',
     )

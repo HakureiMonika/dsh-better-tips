@@ -179,7 +179,7 @@ dsh plugin add https://github.com/HakureiMonika/dsh-better-tips
 
 ```sh
 npm run check   # 语法与模块静态检查
-npm test        # 运行全部 240 项离线契约与回归测试
+npm test        # 运行全部 241 项离线契约与回归测试
 ```
 
 本项目基于 [MIT License](LICENSE) 开源。欢迎提交 [Issue](https://github.com/HakureiMonika/dsh-better-tips/issues) 或 Pull Request。
